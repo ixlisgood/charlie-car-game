@@ -63,6 +63,7 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     isFirstPerson: boolean;
     private playerNameLabel;
     private moderatorLightning;
+    private moderatorAura;
     private physicsEnabled;
     private vehicleHitCooldown;
     constructor(gltf: any);

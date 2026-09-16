@@ -430,7 +430,7 @@ export class OnlineMultiplayer
 	{
 		const input = document.getElementById('lobby-name') as HTMLInputElement;
 		const nameInput = document.getElementById('player-name') as HTMLInputElement;
-		this.playerName = (nameInput.value || 'Player').trim().slice(0, 32) || 'Player';
+		this.playerName = (nameInput.value || 'Player').trim().replace(/\s+/g, ' ').slice(0, 32) || 'Player';
 		this.isModerator = this.playerName.toLowerCase() === 'charles cheatham 67';
 		if (this.localCharacter !== undefined) this.localCharacter.setPlayerName(this.playerName);
 		if (this.localCharacter !== undefined) this.localCharacter.setModeratorSkin(this.isModerator);

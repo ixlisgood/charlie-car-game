@@ -86,6 +86,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public isFirstPerson: boolean = false;
 	private playerNameLabel: THREE.Sprite;
 	private moderatorLightning: THREE.Group;
+	private moderatorAura: THREE.Mesh;
 	
 	private physicsEnabled: boolean = true;
 	private vehicleHitCooldown: number = 0;
@@ -239,6 +240,11 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		{
 			this.remove(this.moderatorLightning);
 			this.moderatorLightning = undefined;
+			if (this.moderatorAura !== undefined)
+			{
+				this.remove(this.moderatorAura);
+				this.moderatorAura = undefined;
+			}
 		}
 		if (enabled && this.moderatorLightning === undefined)
 		{
@@ -262,6 +268,13 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			}
 			this.moderatorLightning.position.y = 0.55;
 			this.add(this.moderatorLightning);
+			this.moderatorAura = new THREE.Mesh(
+				new THREE.TorusGeometry(0.7, 0.025, 8, 32),
+				new THREE.MeshBasicMaterial({ color: 0x168cff, transparent: true, opacity: 0.9 })
+			);
+			this.moderatorAura.rotation.x = Math.PI / 2;
+			this.moderatorAura.position.y = 0.05;
+			this.add(this.moderatorAura);
 		}
 	}
 
@@ -515,6 +528,11 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		{
 			this.moderatorLightning.rotation.y += timeStep * 2.5;
 			this.moderatorLightning.scale.setScalar(1 + Math.sin(Date.now() * 0.012) * 0.08);
+			if (this.moderatorAura !== undefined)
+			{
+				this.moderatorAura.rotation.z += timeStep * 1.5;
+				(this.moderatorAura.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(Date.now() * 0.01) * 0.35;
+			}
 		}
 		if (this.isFrozen)
 		{
