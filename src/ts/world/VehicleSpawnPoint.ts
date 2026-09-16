@@ -51,6 +51,7 @@ export class VehicleSpawnPoint implements ISpawnPoint
 					if (this.driver === 'player')
 					{
 						character.takeControl();
+						if (world.onlineMultiplayer !== undefined) world.onlineMultiplayer.setLocalCharacter(character);
 					}
 					else if (this.driver === 'ai')
 					{

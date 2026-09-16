@@ -79,6 +79,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public controlledObject: IControllable;
 	public occupyingSeat: VehicleSeat = null;
 	public vehicleEntryInstance: VehicleEntryInstance = null;
+	public isRemote: boolean = false;
 	
 	private physicsEnabled: boolean = true;
 
@@ -167,6 +168,14 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		this.animations = animations;
 	}
 
+	public setPlayerColor(color: string): void
+	{
+		this.materials.forEach((material: any) =>
+		{
+			if (material.color !== undefined) material.color.set(color);
+		});
+	}
+
 	public setArcadeVelocityInfluence(x: number, y: number = x, z: number = x): void
 	{
 		this.arcadeVelocityInfluence.set(x, y, z);
@@ -248,6 +257,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 
 	public setPhysicsEnabled(value: boolean): void {
 		this.physicsEnabled = value;
+		if (this.world === undefined) return;
 
 		if (value === true)
 		{
@@ -408,7 +418,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		this.behaviour?.update(timeStep);
 		this.vehicleEntryInstance?.update(timeStep);
 		// console.log(this.occupyingSeat);
-		this.charState?.update(timeStep);
+		if (!this.isRemote) this.charState?.update(timeStep);
 
 		// this.visuals.position.copy(this.modelOffset);
 		if (this.physicsEnabled) this.springMovement(timeStep);

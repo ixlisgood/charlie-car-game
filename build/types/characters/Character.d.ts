@@ -57,9 +57,11 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     controlledObject: IControllable;
     occupyingSeat: VehicleSeat;
     vehicleEntryInstance: VehicleEntryInstance;
+    isRemote: boolean;
     private physicsEnabled;
     constructor(gltf: any);
     setAnimations(animations: []): void;
+    setPlayerColor(color: string): void;
     setArcadeVelocityInfluence(x: number, y?: number, z?: number): void;
     setViewVector(vector: THREE.Vector3): void;
     /**

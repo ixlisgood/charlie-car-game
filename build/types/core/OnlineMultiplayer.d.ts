@@ -13,10 +13,21 @@ export declare class OnlineMultiplayer {
     private loadingManager;
     private lastPublished;
     private playerId;
+    private lastLocalPosition;
+    private lobbyId;
+    private playerColor;
+    private lobbyMenu;
     constructor(world: World, loadingManager: LoadingManager);
     updateOrder: number;
     setLocalCharacter(character: Character): void;
     update(timeStep: number): void;
     private updateRemotePlayers;
     private createRemotePlayer;
+    private syncRemoteVehicle;
+    private setRemoteAnimation;
+    private removeRemoteVehicle;
+    private attachRemoteCharacter;
+    private createVehicleVisual;
+    private createLobbyMenu;
+    private joinLobby;
 }
