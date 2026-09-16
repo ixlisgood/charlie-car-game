@@ -1,4 +1,5 @@
-const firebase: any = require('firebase/app');
+const firebaseModule: any = require('firebase/app');
+const firebase: any = firebaseModule.default || firebaseModule;
 require('firebase/database');
 import * as THREE from 'three';
 
