@@ -8,6 +8,7 @@ import { World } from '../world/World';
 import { Character } from '../characters/Character';
 import { Vehicle } from '../vehicles/Vehicle';
 import { Car } from '../vehicles/Car';
+import { PickupTruck } from '../vehicles/PickupTruck';
 import { Airplane } from '../vehicles/Airplane';
 import { Helicopter } from '../vehicles/Helicopter';
 import { LoadingManager } from './LoadingManager';
@@ -114,7 +115,7 @@ export class OnlineMultiplayer
 		const object: any = this.localCharacter.controlledObject || occupiedSeat?.vehicle || this.localCharacter;
 		const position = object.collision === undefined ? object.position : object.collision.interpolatedPosition;
 		const quaternion = object.collision === undefined ? object.quaternion : object.collision.interpolatedQuaternion;
-		const vehicleType = object.entityType === 2 ? 'car' : object.entityType === 1 ? 'airplane' : object.entityType === 3 ? 'heli' : undefined;
+		const vehicleType = object.userData.vehicleType || (object.entityType === 2 ? 'car' : object.entityType === 1 ? 'airplane' : object.entityType === 3 ? 'heli' : undefined);
 		const vehicleId = vehicleType !== undefined ? String(object.userData.networkId || object.spawnPoint?.name || object.uuid) : undefined;
 		const moving = vehicleType === undefined && position.distanceTo(this.lastLocalPosition) > 0.02;
 		this.lastLocalPosition.copy(position);
@@ -253,7 +254,8 @@ export class OnlineMultiplayer
 		if (remote.vehicle === undefined || remote.vehicle.userData.vehicleType !== vehicleType)
 		{
 			this.removeRemoteVehicle(remote);
-			this.loadingManager.loadGLTF('build/assets/' + vehicleType + '.glb', (model) =>
+			const assetType = vehicleType === 'pickup' ? 'car' : vehicleType;
+			this.loadingManager.loadGLTF('build/assets/' + assetType + '.glb', (model) =>
 			{
 				if (this.remoteVehicles[vehicleId] !== undefined) return;
 				const vehicle = this.createVehicleVisual(vehicleType, model);
@@ -341,6 +343,7 @@ export class OnlineMultiplayer
 		switch (vehicleType)
 		{
 			case 'car': return new Car(model);
+			case 'pickup': return new PickupTruck(model);
 			case 'airplane': return new Airplane(model);
 			case 'heli': return new Helicopter(model);
 			default: return new Car(model);

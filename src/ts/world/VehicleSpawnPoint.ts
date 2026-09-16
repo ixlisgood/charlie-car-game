@@ -4,6 +4,7 @@ import { World } from '../world/World';
 import { Helicopter } from '../vehicles/Helicopter';
 import { Airplane } from '../vehicles/Airplane';
 import { Car } from '../vehicles/Car';
+import { PickupTruck } from '../vehicles/PickupTruck';
 import * as Utils from '../core/FunctionLibrary';
 import { Vehicle } from '../vehicles/Vehicle';
 import { Character } from '../characters/Character';
@@ -26,11 +27,13 @@ export class VehicleSpawnPoint implements ISpawnPoint
 
 	public spawn(loadingManager: LoadingManager, world: World): void
 	{
-		loadingManager.loadGLTF('build/assets/' + this.type + '.glb', (model: any) =>
+		const assetType = 'car';
+		loadingManager.loadGLTF('build/assets/' + assetType + '.glb', (model: any) =>
 		{
 			let vehicle: Vehicle = this.getNewVehicleByType(model, this.type);
 			vehicle.spawnPoint = this.object;
 			vehicle.userData.networkId = this.object.name || this.object.uuid;
+			vehicle.userData.vehicleType = this.type;
 
 			let worldPos = new THREE.Vector3();
 			let worldQuat = new THREE.Quaternion();
@@ -92,6 +95,7 @@ export class VehicleSpawnPoint implements ISpawnPoint
 	{
 		switch (type)
 		{
+			case 'pickup': return new PickupTruck(model);
 			case 'car': return new Car(model);
 			case 'heli': return new Helicopter(model);
 			case 'airplane': return new Airplane(model);

@@ -87,6 +87,10 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	private playerNameLabel: THREE.Sprite;
 	private moderatorLightning: THREE.Group;
 	private moderatorAura: THREE.Mesh;
+	private moderatorTrail: THREE.Group;
+	private moderatorTrailAge: number = 0;
+	private moderatorTrailPosition: THREE.Vector3 = new THREE.Vector3();
+	private moderatorTrailInitialized: boolean = false;
 	
 	private physicsEnabled: boolean = true;
 	private vehicleHitCooldown: number = 0;
@@ -240,11 +244,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		{
 			this.remove(this.moderatorLightning);
 			this.moderatorLightning = undefined;
-			if (this.moderatorAura !== undefined)
-			{
-				this.remove(this.moderatorAura);
-				this.moderatorAura = undefined;
-			}
+			this.removeModeratorTrail();
 		}
 		if (enabled && this.moderatorLightning === undefined)
 		{
@@ -268,14 +268,21 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			}
 			this.moderatorLightning.position.y = 0.55;
 			this.add(this.moderatorLightning);
-			this.moderatorAura = new THREE.Mesh(
-				new THREE.TorusGeometry(0.7, 0.025, 8, 32),
-				new THREE.MeshBasicMaterial({ color: 0x168cff, transparent: true, opacity: 0.9 })
-			);
-			this.moderatorAura.rotation.x = Math.PI / 2;
-			this.moderatorAura.position.y = 0.05;
-			this.add(this.moderatorAura);
+			this.moderatorTrail = new THREE.Group();
+			this.world?.graphicsWorld.add(this.moderatorTrail);
+			this.moderatorTrailPosition.copy(this.getWorldPosition(new THREE.Vector3()));
+			this.moderatorTrailInitialized = true;
 		}
+	}
+
+	private removeModeratorTrail(): void
+	{
+		if (this.moderatorTrail !== undefined)
+		{
+			if (this.world !== undefined) this.world.graphicsWorld.remove(this.moderatorTrail);
+			this.moderatorTrail = undefined;
+		}
+		this.moderatorTrailInitialized = false;
 	}
 
 	public setArcadeVelocityInfluence(x: number, y: number = x, z: number = x): void
@@ -528,10 +535,30 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		{
 			this.moderatorLightning.rotation.y += timeStep * 2.5;
 			this.moderatorLightning.scale.setScalar(1 + Math.sin(Date.now() * 0.012) * 0.08);
-			if (this.moderatorAura !== undefined)
+			if (this.moderatorTrail !== undefined)
 			{
-				this.moderatorAura.rotation.z += timeStep * 1.5;
-				(this.moderatorAura.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(Date.now() * 0.01) * 0.35;
+				this.moderatorTrailAge += timeStep;
+				const currentPosition = this.getWorldPosition(new THREE.Vector3());
+				if (this.moderatorTrailInitialized && currentPosition.distanceTo(this.moderatorTrailPosition) > 0.08 && this.moderatorTrailAge > 0.04)
+				{
+					const geometry = new THREE.Geometry();
+					geometry.vertices.push(this.moderatorTrailPosition.clone().add(new THREE.Vector3(0, 0.35, 0)), currentPosition.clone().add(new THREE.Vector3(0, 0.35, 0)));
+					const material = new THREE.LineBasicMaterial({ color: 0x168cff, transparent: true, opacity: 0.9 });
+					this.moderatorTrail.add(new THREE.Line(geometry, material));
+					this.moderatorTrailPosition.copy(currentPosition);
+					this.moderatorTrailAge = 0;
+				}
+				this.moderatorTrail.children.slice().forEach((child: THREE.Line) =>
+				{
+					const material = child.material as THREE.LineBasicMaterial;
+					material.opacity -= timeStep * 0.45;
+					if (material.opacity <= 0)
+					{
+						this.moderatorTrail.remove(child);
+						child.geometry.dispose();
+						material.dispose();
+					}
+				});
 			}
 		}
 		if (this.isFrozen)

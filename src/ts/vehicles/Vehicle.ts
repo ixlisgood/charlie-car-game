@@ -30,7 +30,7 @@ export abstract class Vehicle extends THREE.Object3D implements IWorldEntity
 	public collision: CANNON.Body;
 	public materials: THREE.Material[] = [];
 	public spawnPoint: THREE.Object3D;
-	private modelContainer: THREE.Group;
+	protected modelContainer: THREE.Group;
 
 	private firstPerson: boolean = false;
 
