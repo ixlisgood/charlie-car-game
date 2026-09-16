@@ -1,6 +1,6 @@
 {
   "name": "sketchbook",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "description": "3D playground built on three.js and cannon.js",
   "keywords": [
     "3d",

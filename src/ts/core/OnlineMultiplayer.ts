@@ -352,7 +352,7 @@ export class OnlineMultiplayer
 		const menu = document.createElement('div');
 		menu.id = 'lobby-menu';
 		menu.innerHTML = '<div class="lobby-panel">' +
-			'<h1>Sketchbook 0.6</h1>' +
+			'<h1>Sketchbook 1.0</h1>' +
 			'<label for="lobby-name">Lobby</label>' +
 			'<input id="lobby-name" value="main" maxlength="24" />' +
 			'<label for="player-name">Username</label>' +
