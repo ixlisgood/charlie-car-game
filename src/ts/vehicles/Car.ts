@@ -267,6 +267,7 @@ export class Car extends Vehicle implements IControllable
 		if (this.actions.exitVehicle.justPressed)
 		{
 			this.characterWantsToExit = true;
+			this.forcePassengersOut();
 		}
 		if (this.actions.exitVehicle.justReleased)
 		{

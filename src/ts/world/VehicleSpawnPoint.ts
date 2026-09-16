@@ -30,6 +30,7 @@ export class VehicleSpawnPoint implements ISpawnPoint
 		{
 			let vehicle: Vehicle = this.getNewVehicleByType(model, this.type);
 			vehicle.spawnPoint = this.object;
+			vehicle.userData.networkId = this.object.name || this.object.uuid;
 
 			let worldPos = new THREE.Vector3();
 			let worldQuat = new THREE.Quaternion();

@@ -75,3 +75,28 @@
 	font-weight: 700;
 	cursor: pointer;
 }
+
+#moderator-menu {
+	position: absolute;
+	top: 18px;
+	right: 18px;
+	display: none;
+	z-index: 10002;
+}
+
+.moderator-panel {
+	display: flex;
+	gap: 8px;
+	padding: 10px;
+	background: #f4f1e8;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.moderator-panel button {
+	padding: 8px 10px;
+	border: 0;
+	background: #19232d;
+	color: white;
+	font: inherit;
+	cursor: pointer;
+}

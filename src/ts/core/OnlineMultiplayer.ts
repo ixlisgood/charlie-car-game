@@ -26,16 +26,25 @@ interface OnlinePlayerState
 	moving?: boolean;
 	updatedAt: number;
 	color?: string;
+	vehicleId?: string;
+	frozen?: boolean;
 }
 
 interface RemotePlayer
 {
 	character: Character;
 	vehicle?: THREE.Object3D;
+	vehicleId?: string;
 	vehicleCollision?: CANNON.Body;
 	animation?: string;
 	color?: string;
 	lastSeen: number;
+}
+
+interface RemoteVehicle
+{
+	vehicle: Vehicle;
+	collision: CANNON.Body;
 }
 
 export class OnlineMultiplayer
@@ -48,13 +57,18 @@ export class OnlineMultiplayer
 	private playersRef: any;
 	private localCharacter: Character;
 	private remotePlayers: { [id: string]: RemotePlayer } = {};
+	private remoteVehicles: { [id: string]: RemoteVehicle } = {};
 	private loadingManager: LoadingManager;
 	private lastPublished = 0;
 	private playerId: string;
 	private lastLocalPosition = new THREE.Vector3();
 	private lobbyId: string;
 	private playerColor: string = '#2f80ed';
+	private playerName: string = '';
+	private isModerator: boolean = false;
+	private freezeEveryone: boolean = false;
 	private lobbyMenu: HTMLElement;
+	private moderatorMenu: HTMLElement;
 
 	constructor(world: World, loadingManager: LoadingManager)
 	{
@@ -91,10 +105,11 @@ export class OnlineMultiplayer
 		const position = object.collision === undefined ? object.position : object.collision.interpolatedPosition;
 		const quaternion = object.collision === undefined ? object.quaternion : object.collision.interpolatedQuaternion;
 		const vehicleType = object.entityType === 2 ? 'car' : object.entityType === 1 ? 'airplane' : object.entityType === 3 ? 'heli' : undefined;
+		const vehicleId = vehicleType !== undefined ? String(object.userData.networkId || object.spawnPoint?.name || object.uuid) : undefined;
 		const moving = vehicleType === undefined && position.distanceTo(this.lastLocalPosition) > 0.02;
 		this.lastLocalPosition.copy(position);
 		const state: OnlinePlayerState = {
-			name: this.playerId,
+			name: this.playerName,
 			x: position.x,
 			y: position.y,
 			z: position.z,
@@ -104,9 +119,13 @@ export class OnlineMultiplayer
 			qw: quaternion.w,
 			updatedAt: firebase.database.ServerValue.TIMESTAMP as any
 		};
-		if (vehicleType !== undefined) state.vehicleType = vehicleType;
+		if (vehicleType !== undefined) {
+			state.vehicleType = vehicleType;
+			state.vehicleId = vehicleId;
+		}
 		else state.moving = moving;
 		state.color = this.playerColor;
+		state.frozen = this.freezeEveryone;
 
 		this.playerRef.set(state).catch((error) => console.error('Online multiplayer update failed', error));
 	}
@@ -136,13 +155,14 @@ export class OnlineMultiplayer
 				remote.color = state.color;
 				remote.character.setPlayerColor(state.color);
 			}
+			remote.character.isFrozen = state.frozen === true;
 			const position = new THREE.Vector3(state.x, state.y, state.z);
 			const quaternion = new THREE.Quaternion(state.qx, state.qy, state.qz, state.qw);
 			if (state.vehicleType !== undefined)
 			{
 				remote.character.visible = true;
 				this.setRemoteAnimation(remote, 'driving');
-				this.syncRemoteVehicle(remote, state.vehicleType, position, quaternion);
+				this.syncRemoteVehicle(remote, state.vehicleId || id, state.vehicleType, position, quaternion);
 			}
 			else
 			{
@@ -184,14 +204,26 @@ export class OnlineMultiplayer
 		});
 	}
 
-	private syncRemoteVehicle(remote: RemotePlayer, vehicleType: string, position: THREE.Vector3, quaternion: THREE.Quaternion): void
+	private syncRemoteVehicle(remote: RemotePlayer, vehicleId: string, vehicleType: string, position: THREE.Vector3, quaternion: THREE.Quaternion): void
 	{
+		if (remote.vehicleId !== undefined && remote.vehicleId !== vehicleId) this.removeRemoteVehicle(remote);
+		const existing = this.remoteVehicles[vehicleId];
+		if (existing !== undefined)
+		{
+			remote.vehicleId = vehicleId;
+			remote.vehicle = existing.vehicle;
+			existing.vehicle.position.lerp(position, 0.35);
+			existing.vehicle.quaternion.slerp(quaternion, 0.35);
+			this.attachRemoteCharacter(remote);
+			return;
+		}
+
 		if (remote.vehicle === undefined || remote.vehicle.userData.vehicleType !== vehicleType)
 		{
 			this.removeRemoteVehicle(remote);
 			this.loadingManager.loadGLTF('build/assets/' + vehicleType + '.glb', (model) =>
 			{
-				if (remote.vehicle !== undefined) return;
+				if (this.remoteVehicles[vehicleId] !== undefined) return;
 				const vehicle = this.createVehicleVisual(vehicleType, model);
 				vehicle.userData.vehicleType = vehicleType;
 				vehicle.position.copy(position);
@@ -202,6 +234,8 @@ export class OnlineMultiplayer
 				const collision = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC });
 				collision.addShape(new CANNON.Box(new CANNON.Vec3(1.2, 0.6, 2.2)));
 				this.world.physicsWorld.addBody(collision);
+				this.remoteVehicles[vehicleId] = { vehicle, collision };
+				remote.vehicleId = vehicleId;
 				remote.vehicleCollision = collision;
 			});
 			return;
@@ -231,6 +265,22 @@ export class OnlineMultiplayer
 			this.world.graphicsWorld.remove(remote.vehicle);
 			remote.vehicle = undefined;
 		}
+		if (remote.vehicleId !== undefined)
+		{
+			const shared = this.remoteVehicles[remote.vehicleId];
+			if (shared !== undefined)
+			{
+				const stillUsed = Object.keys(this.remotePlayers).some((id) =>
+					id !== this.playerId && this.remotePlayers[id].vehicleId === remote.vehicleId && this.remotePlayers[id] !== remote);
+				if (!stillUsed)
+				{
+					this.world.graphicsWorld.remove(shared.vehicle);
+					this.world.physicsWorld.remove(shared.collision);
+					delete this.remoteVehicles[remote.vehicleId];
+				}
+			}
+			remote.vehicleId = undefined;
+		}
 		if (remote.vehicleCollision !== undefined)
 		{
 			this.world.physicsWorld.remove(remote.vehicleCollision);
@@ -242,7 +292,9 @@ export class OnlineMultiplayer
 	{
 		if (remote.vehicle === undefined || remote.character.parent === remote.vehicle) return;
 		remote.vehicle.add(remote.character);
-		remote.character.position.set(0, 0.7, 0);
+		const seat = remote.vehicle instanceof Vehicle ? remote.vehicle.seats[0] : undefined;
+		if (seat !== undefined) remote.character.position.copy(seat.seatPointObject.position);
+		else remote.character.position.set(0, 0.7, 0);
 		remote.character.quaternion.set(0, 0, 0, 1);
 	}
 
@@ -262,9 +314,11 @@ export class OnlineMultiplayer
 		const menu = document.createElement('div');
 		menu.id = 'lobby-menu';
 		menu.innerHTML = '<div class="lobby-panel">' +
-			'<h1>Sketchbook 0.5</h1>' +
+			'<h1>Sketchbook 0.6</h1>' +
 			'<label for="lobby-name">Lobby</label>' +
 			'<input id="lobby-name" value="main" maxlength="24" />' +
+			'<label for="player-name">Username</label>' +
+			'<input id="player-name" maxlength="32" placeholder="Choose a username" />' +
 			'<div id="lobby-list"></div>' +
 			'<label>Player color</label>' +
 			'<div class="color-list">' +
@@ -279,6 +333,7 @@ export class OnlineMultiplayer
 		'</div>';
 		document.body.appendChild(menu);
 		this.lobbyMenu = menu;
+		this.createModeratorMenu();
 
 		const lobbyList = this.database.ref(OnlineMultiplayer.roomName + '/lobbies');
 		lobbyList.on('value', (snapshot) =>
@@ -302,9 +357,37 @@ export class OnlineMultiplayer
 		(document.getElementById('join-lobby') as HTMLElement).onclick = () => this.joinLobby();
 	}
 
+	private createModeratorMenu(): void
+	{
+		const menu = document.createElement('div');
+		menu.id = 'moderator-menu';
+		menu.innerHTML = '<div class="moderator-panel"><strong>Moderator</strong>' +
+			'<button id="mod-fly">Fly</button>' +
+			'<button id="mod-freeze">Freeze everyone</button>' +
+			'<button id="mod-speed">Speed boost</button></div>';
+		document.body.appendChild(menu);
+		this.moderatorMenu = menu;
+		(document.getElementById('mod-freeze') as HTMLElement).onclick = () =>
+		{
+			this.freezeEveryone = !this.freezeEveryone;
+			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = this.freezeEveryone;
+		};
+		(document.getElementById('mod-fly') as HTMLElement).onclick = () =>
+		{
+			if (this.localCharacter !== undefined) this.localCharacter.isFlying = !this.localCharacter.isFlying;
+		};
+		(document.getElementById('mod-speed') as HTMLElement).onclick = () =>
+		{
+			if (this.localCharacter !== undefined) this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+		};
+	}
+
 	private joinLobby(): void
 	{
 		const input = document.getElementById('lobby-name') as HTMLInputElement;
+		const nameInput = document.getElementById('player-name') as HTMLInputElement;
+		this.playerName = (nameInput.value || 'Player').trim().slice(0, 32) || 'Player';
+		this.isModerator = this.playerName.toLowerCase() === 'charles cheatham 67';
 		this.lobbyId = (input.value || 'main').toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 24) || 'main';
 		this.playerId = this.database.ref().push().key;
 		const lobbyRef = this.database.ref(OnlineMultiplayer.roomName + '/lobbies/' + this.lobbyId);
@@ -314,5 +397,6 @@ export class OnlineMultiplayer
 		this.playersRef.on('value', (snapshot) => this.updateRemotePlayers(snapshot.val() || {}));
 		lobbyRef.child('lastActive').set(firebase.database.ServerValue.TIMESTAMP);
 		this.lobbyMenu.style.display = 'none';
+		this.moderatorMenu.style.display = this.isModerator ? 'block' : 'none';
 	}
 }

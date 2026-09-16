@@ -108,6 +108,11 @@ export abstract class CharacterStateBase implements ICharacterState
 
 	public setAppropriateDropState(): void
 	{
+		if (this.character.groundImpactData.velocity.y < -10)
+		{
+			this.character.hitByFall();
+			return;
+		}
 		if (this.character.groundImpactData.velocity.y < -6)
 		{
 			this.character.setState(new DropRolling(this.character));

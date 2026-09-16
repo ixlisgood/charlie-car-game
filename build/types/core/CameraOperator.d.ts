@@ -26,11 +26,13 @@ export declare class CameraOperator implements IInputReceiver, IUpdatable {
     rightVelocity: number;
     followMode: boolean;
     characterCaller: Character;
+    private firstPersonCharacter;
     constructor(world: World, camera: THREE.Camera, sensitivityX?: number, sensitivityY?: number);
     setSensitivity(sensitivityX: number, sensitivityY?: number): void;
     setRadius(value: number, instantly?: boolean): void;
     move(deltaX: number, deltaY: number): void;
     update(timeScale: number): void;
+    setFirstPersonCharacter(character: Character): void;
     handleKeyboardEvent(event: KeyboardEvent, code: string, pressed: boolean): void;
     handleMouseWheel(event: WheelEvent, value: number): void;
     handleMouseButton(event: MouseEvent, code: string, pressed: boolean): void;

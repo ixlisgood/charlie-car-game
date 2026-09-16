@@ -109,6 +109,19 @@ export class Scenario
 			sp.spawn(loadingManager, world);
 		});
 
+		let citizensSpawned = 0;
+		for (const pathName in world.paths)
+		{
+			if (citizensSpawned >= 3) break;
+			const nodes = world.paths[pathName].nodes;
+			for (const nodeName in nodes)
+			{
+				if (citizensSpawned >= 3) break;
+				CharacterSpawnPoint.spawnAI(loadingManager, world, nodes[nodeName]);
+				citizensSpawned++;
+			}
+		}
+
 		if (!this.spawnAlways)
 		{
 			loadingManager.createWelcomeScreenCallback(this);

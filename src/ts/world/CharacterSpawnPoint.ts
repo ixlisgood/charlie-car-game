@@ -4,6 +4,8 @@ import { World } from './World';
 import { Character } from '../characters/Character';
 import { LoadingManager } from '../core/LoadingManager';
 import * as Utils from '../core/FunctionLibrary';
+import { CitizenBehaviour } from '../characters/character_ai/CitizenBehaviour';
+import { PathNode } from './PathNode';
 
 export class CharacterSpawnPoint implements ISpawnPoint
 {
@@ -30,6 +32,18 @@ export class CharacterSpawnPoint implements ISpawnPoint
 			world.add(player);
 			player.takeControl();
 			if (world.onlineMultiplayer !== undefined) world.onlineMultiplayer.setLocalCharacter(player);
+		});
+	}
+
+	public static spawnAI(loadingManager: LoadingManager, world: World, node: PathNode): void
+	{
+		loadingManager.loadGLTF('build/assets/boxman.glb', (model) =>
+		{
+			const citizen = new Character(model);
+			const position = node.object.getWorldPosition(new THREE.Vector3());
+			citizen.setPosition(position.x, position.y, position.z);
+			citizen.setBehaviour(new CitizenBehaviour(node));
+			world.add(citizen);
 		});
 	}
 }

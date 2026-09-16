@@ -10,13 +10,18 @@ export declare class OnlineMultiplayer {
     private playersRef;
     private localCharacter;
     private remotePlayers;
+    private remoteVehicles;
     private loadingManager;
     private lastPublished;
     private playerId;
     private lastLocalPosition;
     private lobbyId;
     private playerColor;
+    private playerName;
+    private isModerator;
+    private freezeEveryone;
     private lobbyMenu;
+    private moderatorMenu;
     constructor(world: World, loadingManager: LoadingManager);
     updateOrder: number;
     setLocalCharacter(character: Character): void;
@@ -29,5 +34,6 @@ export declare class OnlineMultiplayer {
     private attachRemoteCharacter;
     private createVehicleVisual;
     private createLobbyMenu;
+    private createModeratorMenu;
     private joinLobby;
 }

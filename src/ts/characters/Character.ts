@@ -27,6 +27,7 @@ import { GroundImpactData } from './GroundImpactData';
 import { ClosestObjectFinder } from '../core/ClosestObjectFinder';
 import { Object3D } from 'three';
 import { EntityType } from '../enums/EntityType';
+import { VehicleHit } from './character_states/VehicleHit';
 
 export class Character extends THREE.Object3D implements IWorldEntity
 {
@@ -80,8 +81,12 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public occupyingSeat: VehicleSeat = null;
 	public vehicleEntryInstance: VehicleEntryInstance = null;
 	public isRemote: boolean = false;
+	public isFrozen: boolean = false;
+	public isFlying: boolean = false;
+	public isFirstPerson: boolean = false;
 	
 	private physicsEnabled: boolean = true;
+	private vehicleHitCooldown: number = 0;
 
 	constructor(gltf: any)
 	{
@@ -121,6 +126,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			'seat_switch': new KeyBinding('KeyX'),
 			'primary': new KeyBinding('Mouse0'),
 			'secondary': new KeyBinding('Mouse1'),
+			'first_person': new KeyBinding('KeyV'),
 		};
 
 		// Physics
@@ -158,6 +164,11 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		// Physics pre/post step callback bindings
 		this.characterCapsule.body.preStep = (body: CANNON.Body) => { this.physicsPreStep(body, this); };
 		this.characterCapsule.body.postStep = (body: CANNON.Body) => { this.physicsPostStep(body, this); };
+		this.characterCapsule.body.addEventListener('collide', (event: any) =>
+		{
+			const vehicle = event.body?.userData?.vehicle as Vehicle;
+			if (vehicle !== undefined) this.hitByVehicle(vehicle);
+		});
 
 		// States
 		this.setState(new Idle(this));
@@ -293,6 +304,12 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		}
 		else
 		{
+			if (code === 'KeyV' && pressed === true)
+			{
+				this.isFirstPerson = !this.isFirstPerson;
+				this.world.cameraOperator.setFirstPersonCharacter(this.isFirstPerson ? this : undefined);
+				return;
+			}
 			// Free camera
 			if (code === 'KeyC' && pressed === true && event.shiftKey === true)
 			{
@@ -415,6 +432,13 @@ export class Character extends THREE.Object3D implements IWorldEntity
 
 	public update(timeStep: number): void
 	{
+		this.vehicleHitCooldown = Math.max(0, this.vehicleHitCooldown - timeStep);
+		if (this.isFrozen)
+		{
+			this.velocityTarget.set(0, 0, 0);
+			this.resetVelocity();
+			return;
+		}
 		this.behaviour?.update(timeStep);
 		this.vehicleEntryInstance?.update(timeStep);
 		// console.log(this.occupyingSeat);
@@ -429,6 +453,10 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		// Sync physics/graphics
 		if (this.physicsEnabled)
 		{
+			if (this.isFlying && this.controlledObject === undefined)
+			{
+				this.characterCapsule.body.velocity.y = this.actions.jump.isPressed ? 6 : this.actions.down.isPressed ? -6 : 0;
+			}
 			this.position.set(
 				this.characterCapsule.body.interpolatedPosition.x,
 				this.characterCapsule.body.interpolatedPosition.y,
@@ -444,6 +472,25 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		}
 
 		this.updateMatrixWorld();
+	}
+
+	public hitByVehicle(vehicle: Vehicle): void
+	{
+		if (this.isRemote || this.vehicleHitCooldown > 0 || this.occupyingSeat !== null) return;
+		if (vehicle.collision.velocity.length() < 2) return;
+
+		this.vehicleHitCooldown = 1;
+		this.characterCapsule.body.velocity.x = vehicle.collision.velocity.x * 0.75;
+		this.characterCapsule.body.velocity.y = 4;
+		this.characterCapsule.body.velocity.z = vehicle.collision.velocity.z * 0.75;
+		this.setState(new VehicleHit(this));
+	}
+
+	public hitByFall(): void
+	{
+		if (this.vehicleHitCooldown > 0 || this.occupyingSeat !== null) return;
+		this.vehicleHitCooldown = 1;
+		this.setState(new VehicleHit(this));
 	}
 
 	public inputReceiverInit(): void
@@ -479,6 +526,10 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			{
 				keys: ['F', 'or', 'G'],
 				desc: 'Enter vehicle'
+			},
+			{
+				keys: ['V'],
+				desc: 'First-person view'
 			},
 			{
 				keys: ['Shift', '+', 'R'],
@@ -630,6 +681,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 					// Consider driver seats
 					if (seat.type === SeatType.Driver)
 					{
+						if (seat.occupiedBy !== null) continue;
 						seat.seatPointObject.getWorldPosition(worldPos);
 						seatFinder.consider(seat, worldPos);
 					}
@@ -652,6 +704,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 					// Consider passenger seats
 					if (seat.type === SeatType.Passenger)
 					{
+						if (seat.occupiedBy !== null) continue;
 						seat.seatPointObject.getWorldPosition(worldPos);
 						seatFinder.consider(seat, worldPos);
 					}

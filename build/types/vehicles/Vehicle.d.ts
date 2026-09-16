@@ -30,6 +30,7 @@ export declare abstract class Vehicle extends THREE.Object3D implements IWorldEn
     noDirectionPressed(): boolean;
     update(timeStep: number): void;
     forceCharacterOut(): void;
+    forcePassengersOut(): void;
     onInputChange(): void;
     resetControls(): void;
     allowSleep(value: boolean): void;

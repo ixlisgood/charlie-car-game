@@ -33,6 +33,7 @@ export class CameraOperator implements IInputReceiver, IUpdatable
 	public followMode: boolean = false;
 
 	public characterCaller: Character;
+	private firstPersonCharacter: Character;
 
 	constructor(world: World, camera: THREE.Camera, sensitivityX: number = 1, sensitivityY: number = sensitivityX * 0.8)
 	{
@@ -87,7 +88,19 @@ export class CameraOperator implements IInputReceiver, IUpdatable
 
 	public update(timeScale: number): void
 	{
-		if (this.followMode === true)
+		if (this.firstPersonCharacter !== undefined)
+		{
+			const character = this.firstPersonCharacter;
+			character.getWorldPosition(this.target);
+			this.camera.position.copy(this.target).add(new THREE.Vector3(0, 0.55, 0));
+			character.viewVector.set(
+				Math.sin(this.theta * Math.PI / 180) * Math.cos(this.phi * Math.PI / 180),
+				-Math.sin(this.phi * Math.PI / 180),
+				Math.cos(this.theta * Math.PI / 180) * Math.cos(this.phi * Math.PI / 180)
+			);
+			this.camera.lookAt(this.camera.position.clone().add(character.viewVector));
+		}
+		else if (this.followMode === true)
 		{
 			this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y, this.target.y, Number.POSITIVE_INFINITY);
 			this.camera.lookAt(this.target);
@@ -106,6 +119,12 @@ export class CameraOperator implements IInputReceiver, IUpdatable
 			this.camera.updateMatrix();
 			this.camera.lookAt(this.target);
 		}
+	}
+
+	public setFirstPersonCharacter(character: Character): void
+	{
+		this.firstPersonCharacter = character;
+		this.setRadius(character === undefined ? 1.6 : 0, true);
 	}
 
 	public handleKeyboardEvent(event: KeyboardEvent, code: string, pressed: boolean): void

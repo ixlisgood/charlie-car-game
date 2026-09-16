@@ -58,7 +58,11 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     occupyingSeat: VehicleSeat;
     vehicleEntryInstance: VehicleEntryInstance;
     isRemote: boolean;
+    isFrozen: boolean;
+    isFlying: boolean;
+    isFirstPerson: boolean;
     private physicsEnabled;
+    private vehicleHitCooldown;
     constructor(gltf: any);
     setAnimations(animations: []): void;
     setPlayerColor(color: string): void;
@@ -85,6 +89,8 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     takeControl(): void;
     resetControls(): void;
     update(timeStep: number): void;
+    hitByVehicle(vehicle: Vehicle): void;
+    hitByFall(): void;
     inputReceiverInit(): void;
     displayControls(): void;
     inputReceiverUpdate(timeStep: number): void;

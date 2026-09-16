@@ -50,6 +50,7 @@ export abstract class Vehicle extends THREE.Object3D implements IWorldEntity
 		// Collision body
 		this.collision = new CANNON.Body({ mass: 50 });
 		this.collision.material = mat;
+		(this.collision as any).userData = { vehicle: this };
 
 		// Read GLTF
 		this.readVehicleData(gltf);
@@ -119,8 +120,22 @@ export abstract class Vehicle extends THREE.Object3D implements IWorldEntity
 
 	public forceCharacterOut(): void
 	{
-		this.controllingCharacter.modelContainer.visible = true;
-		this.controllingCharacter.exitVehicle();
+		if (this.controllingCharacter !== undefined)
+		{
+			this.controllingCharacter.modelContainer.visible = true;
+			this.controllingCharacter.exitVehicle();
+		}
+	}
+
+	public forcePassengersOut(): void
+	{
+		this.seats.forEach((seat) =>
+		{
+			if (seat.occupiedBy !== null && seat.occupiedBy !== this.controllingCharacter)
+			{
+				seat.occupiedBy.exitVehicle();
+			}
+		});
 	}
 
 	public onInputChange(): void
