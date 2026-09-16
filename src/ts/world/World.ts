@@ -31,6 +31,7 @@ import { Vehicle } from '../vehicles/Vehicle';
 import { Scenario } from './Scenario';
 import { Sky } from './Sky';
 import { Ocean } from './Ocean';
+import { OnlineMultiplayer } from '../core/OnlineMultiplayer';
 
 export class World
 {
@@ -63,6 +64,7 @@ export class World
 	public paths: Path[] = [];
 	public scenarioGUIFolder: any;
 	public updatables: IUpdatable[] = [];
+	public onlineMultiplayer: OnlineMultiplayer;
 
 	private lastScenarioID: string;
 
@@ -174,6 +176,7 @@ export class World
 			};
 			loadingManager.loadGLTF(worldScenePath, (gltf) =>
 				{
+					this.onlineMultiplayer = new OnlineMultiplayer(this, loadingManager);
 					this.loadScene(loadingManager, gltf);
 				}
 			);

@@ -29,6 +29,7 @@ export class CharacterSpawnPoint implements ISpawnPoint
 			
 			world.add(player);
 			player.takeControl();
+			if (world.onlineMultiplayer !== undefined) world.onlineMultiplayer.setLocalCharacter(player);
 		});
 	}
 }

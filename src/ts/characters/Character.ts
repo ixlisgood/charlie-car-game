@@ -945,8 +945,8 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			// Register character
 			world.characters.push(this);
 
-			// Register physics
-			world.physicsWorld.addBody(this.characterCapsule.body);
+			// Register physics for locally simulated characters only
+			if (this.physicsEnabled) world.physicsWorld.addBody(this.characterCapsule.body);
 
 			// Add to graphicsWorld
 			world.graphicsWorld.add(this);
