@@ -488,9 +488,19 @@ export class Character extends THREE.Object3D implements IWorldEntity
 
 	public hitByFall(): void
 	{
-		if (this.vehicleHitCooldown > 0 || this.occupyingSeat !== null) return;
+		if (this.vehicleHitCooldown > 0 || this.occupyingSeat !== null || this.isRemote) return;
 		this.vehicleHitCooldown = 1;
 		this.setState(new VehicleHit(this));
+	}
+
+	public applyTPose(): void
+	{
+		this.modelContainer.traverse((child: any) =>
+		{
+			const name = (child.name || '').toLowerCase();
+			if (name.indexOf('leftarm') >= 0 || name.indexOf('left_arm') >= 0) child.rotation.z = -Math.PI / 2;
+			if (name.indexOf('rightarm') >= 0 || name.indexOf('right_arm') >= 0) child.rotation.z = Math.PI / 2;
+		});
 	}
 
 	public inputReceiverInit(): void

@@ -108,7 +108,7 @@ export abstract class CharacterStateBase implements ICharacterState
 
 	public setAppropriateDropState(): void
 	{
-		if (this.character.groundImpactData.velocity.y < -10)
+		if (this.character.groundImpactData.velocity.y < -4)
 		{
 			this.character.hitByFall();
 			return;

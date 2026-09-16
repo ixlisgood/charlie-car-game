@@ -12,6 +12,7 @@ export class VehicleHit extends CharacterStateBase
 		this.canLeaveVehicles = false;
 		this.character.velocitySimulator.damping = 0.2;
 		this.character.tiltContainer.rotation.z = 0;
+		this.character.applyTPose();
 
 		const tPose = this.character.animations.find((clip: any) => /t.?pose/i.test(clip.name));
 		if (tPose !== undefined) this.playAnimation(tPose.name, 0.05);

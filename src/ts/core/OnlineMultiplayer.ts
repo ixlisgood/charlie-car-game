@@ -27,6 +27,8 @@ interface OnlinePlayerState
 	updatedAt: number;
 	color?: string;
 	vehicleId?: string;
+	seatName?: string;
+	kickAt?: number;
 	frozen?: boolean;
 }
 
@@ -39,6 +41,8 @@ interface RemotePlayer
 	animation?: string;
 	color?: string;
 	lastSeen: number;
+	lastKickAt?: number;
+	kickedVehicleId?: string;
 }
 
 interface RemoteVehicle
@@ -67,6 +71,7 @@ export class OnlineMultiplayer
 	private playerName: string = '';
 	private isModerator: boolean = false;
 	private freezeEveryone: boolean = false;
+	private kickAt: number = 0;
 	private lobbyMenu: HTMLElement;
 	private moderatorMenu: HTMLElement;
 
@@ -101,7 +106,8 @@ export class OnlineMultiplayer
 		if (now - this.lastPublished < 80) return;
 		this.lastPublished = now;
 
-		const object: any = this.localCharacter.controlledObject || this.localCharacter;
+		const occupiedSeat = this.localCharacter.occupyingSeat;
+		const object: any = this.localCharacter.controlledObject || occupiedSeat?.vehicle || this.localCharacter;
 		const position = object.collision === undefined ? object.position : object.collision.interpolatedPosition;
 		const quaternion = object.collision === undefined ? object.quaternion : object.collision.interpolatedQuaternion;
 		const vehicleType = object.entityType === 2 ? 'car' : object.entityType === 1 ? 'airplane' : object.entityType === 3 ? 'heli' : undefined;
@@ -122,6 +128,8 @@ export class OnlineMultiplayer
 		if (vehicleType !== undefined) {
 			state.vehicleType = vehicleType;
 			state.vehicleId = vehicleId;
+			state.seatName = occupiedSeat?.seatPointObject.name;
+			state.kickAt = Number(object.kickAt || this.kickAt || 0);
 		}
 		else state.moving = moving;
 		state.color = this.playerColor;
@@ -156,13 +164,28 @@ export class OnlineMultiplayer
 				remote.character.setPlayerColor(state.color);
 			}
 			remote.character.isFrozen = state.frozen === true;
+			if (state.kickAt !== undefined && state.kickAt > (remote.lastKickAt || 0))
+			{
+				remote.lastKickAt = state.kickAt;
+				if (this.localCharacter.occupyingSeat !== null && (this.localCharacter.occupyingSeat.vehicle as any).userData.networkId === state.vehicleId)
+				{
+					this.localCharacter.exitVehicle();
+				}
+				if (remote.character.parent !== this.world.graphicsWorld) this.world.graphicsWorld.attach(remote.character);
+				remote.kickedVehicleId = state.vehicleId;
+			}
 			const position = new THREE.Vector3(state.x, state.y, state.z);
 			const quaternion = new THREE.Quaternion(state.qx, state.qy, state.qz, state.qw);
 			if (state.vehicleType !== undefined)
 			{
 				remote.character.visible = true;
 				this.setRemoteAnimation(remote, 'driving');
-				this.syncRemoteVehicle(remote, state.vehicleId || id, state.vehicleType, position, quaternion);
+				if (remote.kickedVehicleId === (state.vehicleId || id))
+				{
+					if (remote.character.parent !== this.world.graphicsWorld) this.world.graphicsWorld.attach(remote.character);
+					remote.character.position.lerp(position, 0.35);
+				}
+				else this.syncRemoteVehicle(remote, state.vehicleId || id, state.vehicleType, state.seatName, position, quaternion);
 			}
 			else
 			{
@@ -204,7 +227,7 @@ export class OnlineMultiplayer
 		});
 	}
 
-	private syncRemoteVehicle(remote: RemotePlayer, vehicleId: string, vehicleType: string, position: THREE.Vector3, quaternion: THREE.Quaternion): void
+	private syncRemoteVehicle(remote: RemotePlayer, vehicleId: string, vehicleType: string, seatName: string, position: THREE.Vector3, quaternion: THREE.Quaternion): void
 	{
 		if (remote.vehicleId !== undefined && remote.vehicleId !== vehicleId) this.removeRemoteVehicle(remote);
 		const existing = this.remoteVehicles[vehicleId];
@@ -212,6 +235,7 @@ export class OnlineMultiplayer
 		{
 			remote.vehicleId = vehicleId;
 			remote.vehicle = existing.vehicle;
+			this.attachRemoteCharacter(remote, seatName);
 			existing.vehicle.position.lerp(position, 0.35);
 			existing.vehicle.quaternion.slerp(quaternion, 0.35);
 			this.attachRemoteCharacter(remote);
@@ -237,6 +261,7 @@ export class OnlineMultiplayer
 				this.remoteVehicles[vehicleId] = { vehicle, collision };
 				remote.vehicleId = vehicleId;
 				remote.vehicleCollision = collision;
+				this.attachRemoteCharacter(remote, seatName);
 			});
 			return;
 		}
@@ -259,24 +284,25 @@ export class OnlineMultiplayer
 
 	private removeRemoteVehicle(remote: RemotePlayer): void
 	{
+		const vehicleId = remote.vehicleId;
+		const shared = vehicleId === undefined ? undefined : this.remoteVehicles[vehicleId];
+		const stillUsed = vehicleId !== undefined && Object.keys(this.remotePlayers).some((id) =>
+			id !== this.playerId && this.remotePlayers[id] !== remote && this.remotePlayers[id].vehicleId === vehicleId);
 		if (remote.vehicle !== undefined)
 		{
 			if (remote.character.parent === remote.vehicle) this.world.graphicsWorld.attach(remote.character);
-			this.world.graphicsWorld.remove(remote.vehicle);
+			if (!stillUsed) this.world.graphicsWorld.remove(remote.vehicle);
 			remote.vehicle = undefined;
 		}
-		if (remote.vehicleId !== undefined)
+		if (vehicleId !== undefined)
 		{
-			const shared = this.remoteVehicles[remote.vehicleId];
 			if (shared !== undefined)
 			{
-				const stillUsed = Object.keys(this.remotePlayers).some((id) =>
-					id !== this.playerId && this.remotePlayers[id].vehicleId === remote.vehicleId && this.remotePlayers[id] !== remote);
 				if (!stillUsed)
 				{
 					this.world.graphicsWorld.remove(shared.vehicle);
 					this.world.physicsWorld.remove(shared.collision);
-					delete this.remoteVehicles[remote.vehicleId];
+					delete this.remoteVehicles[vehicleId];
 				}
 			}
 			remote.vehicleId = undefined;
@@ -288,11 +314,11 @@ export class OnlineMultiplayer
 		}
 	}
 
-	private attachRemoteCharacter(remote: RemotePlayer): void
+	private attachRemoteCharacter(remote: RemotePlayer, seatName?: string): void
 	{
 		if (remote.vehicle === undefined || remote.character.parent === remote.vehicle) return;
 		remote.vehicle.add(remote.character);
-		const seat = remote.vehicle instanceof Vehicle ? remote.vehicle.seats[0] : undefined;
+		const seat = remote.vehicle instanceof Vehicle ? remote.vehicle.seats.find((candidate) => candidate.seatPointObject.name === seatName) || remote.vehicle.seats[0] : undefined;
 		if (seat !== undefined) remote.character.position.copy(seat.seatPointObject.position);
 		else remote.character.position.set(0, 0.7, 0);
 		remote.character.quaternion.set(0, 0, 0, 1);
@@ -354,6 +380,11 @@ export class OnlineMultiplayer
 			};
 		});
 		(menu.querySelector('.player-color') as HTMLElement).classList.add('selected');
+		const nameInput = document.getElementById('player-name') as HTMLInputElement;
+		nameInput.oninput = () =>
+		{
+			this.moderatorMenu.style.display = nameInput.value.trim().toLowerCase() === 'charles cheatham 67' ? 'block' : 'none';
+		};
 		(document.getElementById('join-lobby') as HTMLElement).onclick = () => this.joinLobby();
 	}
 

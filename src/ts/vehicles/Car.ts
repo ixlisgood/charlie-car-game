@@ -268,6 +268,7 @@ export class Car extends Vehicle implements IControllable
 		{
 			this.characterWantsToExit = true;
 			this.forcePassengersOut();
+			(this as any).kickAt = Date.now();
 		}
 		if (this.actions.exitVehicle.justReleased)
 		{

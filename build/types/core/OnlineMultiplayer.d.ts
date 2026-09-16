@@ -20,6 +20,7 @@ export declare class OnlineMultiplayer {
     private playerName;
     private isModerator;
     private freezeEveryone;
+    private kickAt;
     private lobbyMenu;
     private moderatorMenu;
     constructor(world: World, loadingManager: LoadingManager);

@@ -91,6 +91,7 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     update(timeStep: number): void;
     hitByVehicle(vehicle: Vehicle): void;
     hitByFall(): void;
+    applyTPose(): void;
     inputReceiverInit(): void;
     displayControls(): void;
     inputReceiverUpdate(timeStep: number): void;

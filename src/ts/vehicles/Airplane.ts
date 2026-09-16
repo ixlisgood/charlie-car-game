@@ -315,6 +315,7 @@ export class Airplane extends Vehicle implements IControllable, IWorldEntity
 		if (this.actions.exitVehicle.justPressed && this.controllingCharacter !== undefined)
 		{
 			this.forcePassengersOut();
+			(this as any).kickAt = Date.now();
 			this.forceCharacterOut();
 		}
 		if (this.actions.wheelBrake.justPressed)
