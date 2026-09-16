@@ -84,6 +84,8 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public isFrozen: boolean = false;
 	public isFlying: boolean = false;
 	public isFirstPerson: boolean = false;
+	private playerNameLabel: THREE.Sprite;
+	private moderatorLightning: THREE.Group;
 	
 	private physicsEnabled: boolean = true;
 	private vehicleHitCooldown: number = 0;
@@ -148,6 +150,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 
 		// Move character to different collision group for raycasting
 		this.characterCapsule.body.collisionFilterGroup = 2;
+		(this.characterCapsule.body as any).userData = { character: this };
 
 		// Disable character rotation
 		this.characterCapsule.body.fixedRotation = true;
@@ -185,6 +188,81 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		{
 			if (material.color !== undefined) material.color.set(color);
 		});
+	}
+
+	public setPlayerName(name: string): void
+	{
+		if (this.playerNameLabel === undefined)
+		{
+			const canvas = document.createElement('canvas');
+			canvas.width = 512;
+			canvas.height = 96;
+			const context = canvas.getContext('2d');
+			context.font = 'bold 38px Arial';
+			context.textAlign = 'center';
+			context.fillStyle = '#ffffff';
+			context.strokeStyle = '#17212b';
+			context.lineWidth = 8;
+			context.strokeText(name, 256, 58);
+			context.fillText(name, 256, 58);
+			const texture = new THREE.CanvasTexture(canvas);
+			const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+			this.playerNameLabel = new THREE.Sprite(material);
+			this.playerNameLabel.scale.set(1.6, 0.3, 1);
+			this.playerNameLabel.position.set(0, 1.35, 0);
+			this.add(this.playerNameLabel);
+		}
+		const canvas = (this.playerNameLabel.material as THREE.SpriteMaterial).map.image as HTMLCanvasElement;
+		const context = canvas.getContext('2d');
+		context.clearRect(0, 0, canvas.width, canvas.height);
+		context.font = 'bold 38px Arial';
+		context.textAlign = 'center';
+		context.fillStyle = '#ffffff';
+		context.strokeStyle = '#17212b';
+		context.lineWidth = 8;
+		context.strokeText(name, 256, 58);
+		context.fillText(name, 256, 58);
+		(this.playerNameLabel.material as THREE.SpriteMaterial).map.needsUpdate = true;
+	}
+
+	public setModeratorSkin(enabled: boolean): void
+	{
+		if (enabled)
+		{
+			this.materials.forEach((material: any) =>
+			{
+				if (material.color !== undefined) material.color.set('#030507');
+			});
+		}
+
+		if (!enabled && this.moderatorLightning !== undefined)
+		{
+			this.remove(this.moderatorLightning);
+			this.moderatorLightning = undefined;
+		}
+		if (enabled && this.moderatorLightning === undefined)
+		{
+			this.moderatorLightning = new THREE.Group();
+			const lightningMaterial = new THREE.LineBasicMaterial({ color: 0x168cff, transparent: true, opacity: 0.95 });
+			for (let boltIndex = 0; boltIndex < 6; boltIndex++)
+			{
+				const geometry = new THREE.Geometry();
+				const angle = (boltIndex / 6) * Math.PI * 2;
+				for (let pointIndex = 0; pointIndex < 6; pointIndex++)
+				{
+					const height = -0.45 + pointIndex * 0.3;
+					const radius = 0.42 + (pointIndex % 2) * 0.12;
+					geometry.vertices.push(new THREE.Vector3(
+						Math.cos(angle + (pointIndex % 2) * 0.18) * radius,
+						height,
+						Math.sin(angle + (pointIndex % 2) * 0.18) * radius
+					));
+				}
+				this.moderatorLightning.add(new THREE.Line(geometry, lightningMaterial));
+			}
+			this.moderatorLightning.position.y = 0.55;
+			this.add(this.moderatorLightning);
+		}
 	}
 
 	public setArcadeVelocityInfluence(x: number, y: number = x, z: number = x): void
@@ -433,6 +511,11 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public update(timeStep: number): void
 	{
 		this.vehicleHitCooldown = Math.max(0, this.vehicleHitCooldown - timeStep);
+		if (this.moderatorLightning !== undefined)
+		{
+			this.moderatorLightning.rotation.y += timeStep * 2.5;
+			this.moderatorLightning.scale.setScalar(1 + Math.sin(Date.now() * 0.012) * 0.08);
+		}
 		if (this.isFrozen)
 		{
 			this.velocityTarget.set(0, 0, 0);
@@ -498,8 +581,8 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		this.modelContainer.traverse((child: any) =>
 		{
 			const name = (child.name || '').toLowerCase();
-			if (name.indexOf('leftarm') >= 0 || name.indexOf('left_arm') >= 0) child.rotation.z = -Math.PI / 2;
-			if (name.indexOf('rightarm') >= 0 || name.indexOf('right_arm') >= 0) child.rotation.z = Math.PI / 2;
+			if (name === 'arm_upper.l') child.rotation.z = -Math.PI / 2;
+			if (name === 'arm_upper.r') child.rotation.z = Math.PI / 2;
 		});
 	}
 

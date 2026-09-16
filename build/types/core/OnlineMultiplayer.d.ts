@@ -8,6 +8,7 @@ export declare class OnlineMultiplayer {
     private database;
     private playerRef;
     private playersRef;
+    private controlRef;
     private localCharacter;
     private remotePlayers;
     private remoteVehicles;

@@ -50,6 +50,9 @@ export abstract class Vehicle extends THREE.Object3D implements IWorldEntity
 		// Collision body
 		this.collision = new CANNON.Body({ mass: 50 });
 		this.collision.material = mat;
+		this.collision.collisionFilterGroup = CollisionGroups.Default;
+		// Keep vehicle shapes collidable with characters and world geometry.
+		this.collision.collisionFilterMask = ~CollisionGroups.TrimeshColliders;
 		(this.collision as any).userData = { vehicle: this };
 
 		// Read GLTF

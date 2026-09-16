@@ -61,11 +61,15 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     isFrozen: boolean;
     isFlying: boolean;
     isFirstPerson: boolean;
+    private playerNameLabel;
+    private moderatorLightning;
     private physicsEnabled;
     private vehicleHitCooldown;
     constructor(gltf: any);
     setAnimations(animations: []): void;
     setPlayerColor(color: string): void;
+    setPlayerName(name: string): void;
+    setModeratorSkin(enabled: boolean): void;
     setArcadeVelocityInfluence(x: number, y?: number, z?: number): void;
     setViewVector(vector: THREE.Vector3): void;
     /**

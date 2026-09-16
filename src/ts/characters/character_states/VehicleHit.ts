@@ -12,6 +12,7 @@ export class VehicleHit extends CharacterStateBase
 		this.canLeaveVehicles = false;
 		this.character.velocitySimulator.damping = 0.2;
 		this.character.tiltContainer.rotation.z = 0;
+		this.character.mixer.stopAllAction();
 		this.character.applyTPose();
 
 		const tPose = this.character.animations.find((clip: any) => /t.?pose/i.test(clip.name));
@@ -22,6 +23,7 @@ export class VehicleHit extends CharacterStateBase
 	{
 		super.update(timeStep);
 		this.character.velocityTarget.set(0, 0, 0);
+		this.character.applyTPose();
 
 		if (!this.fallStarted)
 		{
@@ -29,7 +31,6 @@ export class VehicleHit extends CharacterStateBase
 			if (this.timer > 0.35)
 			{
 				this.fallStarted = true;
-				this.playAnimation('falling', 0.1);
 			}
 		}
 		else if (this.timer > 1.2)
