@@ -268,10 +268,13 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			}
 			this.moderatorLightning.position.y = 0.55;
 			this.add(this.moderatorLightning);
-			this.moderatorTrail = new THREE.Group();
-			this.world?.graphicsWorld.add(this.moderatorTrail);
-			this.moderatorTrailPosition.copy(this.getWorldPosition(new THREE.Vector3()));
-			this.moderatorTrailInitialized = true;
+			if (!this.isRemote)
+			{
+				this.moderatorTrail = new THREE.Group();
+				this.world?.graphicsWorld.add(this.moderatorTrail);
+				this.moderatorTrailPosition.copy(this.getWorldPosition(new THREE.Vector3()));
+				this.moderatorTrailInitialized = true;
+			}
 		}
 	}
 

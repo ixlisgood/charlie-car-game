@@ -100,6 +100,7 @@ export abstract class Vehicle extends THREE.Object3D implements IWorldEntity
 			this.collision.interpolatedQuaternion.z,
 			this.collision.interpolatedQuaternion.w
 		);
+		if (this.userData.fly === true) this.collision.velocity.y = 3;
 
 		this.seats.forEach((seat: VehicleSeat) => {
 			seat.update(timeStep);

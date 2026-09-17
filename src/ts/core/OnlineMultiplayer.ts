@@ -32,6 +32,8 @@ interface OnlinePlayerState
 	seatName?: string;
 	kickAt?: number;
 	frozen?: boolean;
+	flying?: boolean;
+	speedBoost?: boolean;
 }
 
 interface RemotePlayer
@@ -62,6 +64,8 @@ export class OnlineMultiplayer
 	private playerRef: any;
 	private playersRef: any;
 	private controlRef: any;
+	private commandRef: any;
+	private chatRef: any;
 	private localCharacter: Character;
 	private remotePlayers: { [id: string]: RemotePlayer } = {};
 	private remoteVehicles: { [id: string]: RemoteVehicle } = {};
@@ -77,6 +81,9 @@ export class OnlineMultiplayer
 	private kickAt: number = 0;
 	private lobbyMenu: HTMLElement;
 	private moderatorMenu: HTMLElement;
+	private chatPanel: HTMLElement;
+	private centerCursor: HTMLElement;
+	private currentTargetName: string = '';
 
 	constructor(world: World, loadingManager: LoadingManager)
 	{
@@ -105,6 +112,7 @@ export class OnlineMultiplayer
 
 	public update(timeStep: number): void
 	{
+		this.updateTargetCursor();
 		if (this.localCharacter === undefined || this.playerRef === undefined) return;
 
 		const now = Date.now();
@@ -140,6 +148,8 @@ export class OnlineMultiplayer
 		state.color = this.playerColor;
 		state.moderator = this.isModerator;
 		state.frozen = this.freezeEveryone;
+		state.flying = this.localCharacter.isFlying;
+		state.speedBoost = this.localCharacter.moveSpeed > 4;
 
 		this.playerRef.set(state).catch((error) => console.error('Online multiplayer update failed', error));
 	}
@@ -171,7 +181,10 @@ export class OnlineMultiplayer
 			}
 			remote.character.isFrozen = this.freezeEveryone;
 			remote.character.setPlayerName(state.name || 'Player');
+			remote.character.userData.playerName = state.name || 'Player';
 			remote.character.setModeratorSkin(state.moderator === true);
+			remote.character.isFlying = state.flying === true;
+			remote.character.moveSpeed = state.speedBoost === true ? 12 : 4;
 			if (state.kickAt !== undefined && state.kickAt > (remote.lastKickAt || 0))
 			{
 				remote.lastKickAt = state.kickAt;
@@ -194,6 +207,11 @@ export class OnlineMultiplayer
 					remote.character.position.lerp(position, 0.35);
 				}
 				else this.syncRemoteVehicle(remote, state.vehicleId || id, state.vehicleType, state.seatName, position, quaternion);
+				if (remote.vehicle !== undefined)
+				{
+					remote.vehicle.userData.fly = state.flying === true;
+					remote.vehicle.userData.speedBoost = state.speedBoost === true;
+				}
 			}
 			else
 			{
@@ -231,6 +249,7 @@ export class OnlineMultiplayer
 			this.world.add(character);
 			if (state.color !== undefined) character.setPlayerColor(state.color);
 			character.setPlayerName(state.name || 'Player');
+			character.userData.playerName = state.name || 'Player';
 			character.setModeratorSkin(state.moderator === true);
 			this.remotePlayers[id] = { character, color: state.color, lastSeen: Date.now() };
 			this.setRemoteAnimation(this.remotePlayers[id], state.vehicleType !== undefined ? 'driving' : state.moving === true ? 'run' : 'idle');
@@ -375,6 +394,7 @@ export class OnlineMultiplayer
 		document.body.appendChild(menu);
 		this.lobbyMenu = menu;
 		this.createModeratorMenu();
+		this.createChat();
 
 		const lobbyList = this.database.ref(OnlineMultiplayer.roomName + '/lobbies');
 		lobbyList.on('value', (snapshot) =>
@@ -413,6 +433,9 @@ export class OnlineMultiplayer
 			'<button id="mod-speed">Speed boost</button></div>';
 		document.body.appendChild(menu);
 		this.moderatorMenu = menu;
+		this.centerCursor = document.createElement('div');
+		this.centerCursor.id = 'moderator-cursor';
+		document.body.appendChild(this.centerCursor);
 		(document.getElementById('mod-freeze') as HTMLElement).onclick = () =>
 		{
 			this.freezeEveryone = !this.freezeEveryone;
@@ -429,6 +452,71 @@ export class OnlineMultiplayer
 		};
 	}
 
+	private createChat(): void
+	{
+		this.chatPanel = document.createElement('div');
+		this.chatPanel.id = 'chat-panel';
+		this.chatPanel.innerHTML = '<div id="chat-messages"></div><input id="chat-input" maxlength="120" placeholder="Chat" />';
+		document.body.appendChild(this.chatPanel);
+		const input = document.getElementById('chat-input') as HTMLInputElement;
+		input.onkeydown = (event: KeyboardEvent) =>
+		{
+			if (event.code !== 'Enter' || input.value.trim() === '') return;
+			const text = input.value.trim();
+			input.value = '';
+			const commandText = text[0] === '!' ? text.slice(1) : text;
+			if (this.isModerator && /^(freeze|fly|superspeed)(?:\s+.*)?$/i.test(commandText)) this.sendCommand(commandText);
+			else this.chatRef?.push({ name: this.playerName || 'Player', text, at: firebase.database.ServerValue.TIMESTAMP });
+		};
+	}
+
+	private sendCommand(commandText: string): void
+	{
+		const parts = commandText.trim().split(/\s+/);
+		const command = parts.shift()?.toLowerCase();
+		const target = parts.join(' ') || this.currentTargetName;
+		if (command !== 'freeze' && command !== 'fly' && command !== 'superspeed') return;
+		if (target === '') return;
+		this.commandRef?.push({ command, target, at: firebase.database.ServerValue.TIMESTAMP });
+		this.chatRef?.push({ name: 'Moderator', text: '!' + command + ' ' + target, at: firebase.database.ServerValue.TIMESTAMP });
+	}
+
+	private applyCommand(command: string, target: string): void
+	{
+		if (target.toLowerCase() !== this.playerName.toLowerCase() || this.localCharacter === undefined) return;
+		if (command === 'freeze') this.localCharacter.isFrozen = !this.localCharacter.isFrozen;
+		if (command === 'fly')
+		{
+			this.localCharacter.isFlying = !this.localCharacter.isFlying;
+			if (this.localCharacter.occupyingSeat !== null) (this.localCharacter.occupyingSeat.vehicle as any).userData.fly = this.localCharacter.isFlying;
+		}
+		if (command === 'superspeed')
+		{
+			this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+			if (this.localCharacter.occupyingSeat !== null) (this.localCharacter.occupyingSeat.vehicle as any).userData.speedBoost = this.localCharacter.moveSpeed > 4;
+		}
+	}
+
+	private updateTargetCursor(): void
+	{
+		if (!this.isModerator || this.localCharacter === undefined) return;
+		const candidates: Array<{ name: string; object: THREE.Object3D; distance: number }> = [];
+		Object.keys(this.remotePlayers).forEach((id) =>
+		{
+			const remote = this.remotePlayers[id];
+			const targetName = remote.character.userData.playerName || 'Player';
+			const objects = remote.vehicle === undefined ? [remote.character] : [remote.vehicle, remote.character];
+			objects.forEach((object) =>
+			{
+				const projected = object.position.clone().project(this.world.camera);
+				if (projected.z > -1 && projected.z < 1) candidates.push({ name: targetName, object, distance: Math.sqrt(projected.x * projected.x + projected.y * projected.y) });
+			});
+		});
+		candidates.sort((a, b) => a.distance - b.distance);
+		this.currentTargetName = candidates.length > 0 && candidates[0].distance < 0.18 ? candidates[0].name : '';
+		this.centerCursor.classList.toggle('targeting', this.currentTargetName !== '');
+	}
+
 	private joinLobby(): void
 	{
 		const input = document.getElementById('lobby-name') as HTMLInputElement;
@@ -441,6 +529,8 @@ export class OnlineMultiplayer
 		this.playerId = this.database.ref().push().key;
 		const lobbyRef = this.database.ref(OnlineMultiplayer.roomName + '/lobbies/' + this.lobbyId);
 		this.controlRef = lobbyRef.child('control');
+		this.commandRef = lobbyRef.child('commands');
+		this.chatRef = lobbyRef.child('chat');
 		this.playersRef = lobbyRef.child('players');
 		this.playerRef = this.playersRef.child(this.playerId);
 		this.playerRef.onDisconnect().remove();
@@ -451,8 +541,22 @@ export class OnlineMultiplayer
 			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = this.freezeEveryone;
 			Object.keys(this.remotePlayers).forEach((id) => this.remotePlayers[id].character.isFrozen = this.freezeEveryone);
 		});
+		this.commandRef.on('child_added', (snapshot) =>
+		{
+			const command = snapshot.val();
+			if (command?.command && command?.target) this.applyCommand(command.command, command.target);
+		});
+		this.chatRef.on('value', (snapshot) =>
+		{
+			const values = snapshot.val() || {};
+			const messages = Object.keys(values).map((key) => values[key]).slice(-12) as any[];
+			const container = document.getElementById('chat-messages');
+			container.innerHTML = messages.map((message) => '<div><strong>' + message.name + ':</strong> ' + message.text + '</div>').join('');
+			container.scrollTop = container.scrollHeight;
+		});
 		lobbyRef.child('lastActive').set(firebase.database.ServerValue.TIMESTAMP);
 		this.lobbyMenu.style.display = 'none';
 		this.moderatorMenu.style.display = this.isModerator ? 'block' : 'none';
+		this.centerCursor.style.display = this.isModerator ? 'block' : 'none';
 	}
 }
