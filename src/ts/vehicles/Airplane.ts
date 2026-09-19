@@ -271,10 +271,11 @@ export class Airplane extends Vehicle implements IControllable, IWorldEntity
 		{
 			speedModifier = 0;
 		}
+		const boostMul = this.userData.speedBoost === true ? 1.8 : 1;
 
-		body.velocity.x += (velLength1 * this.lastDrag + speedModifier) * forward.x * this.enginePower;
-		body.velocity.y += (velLength1 * this.lastDrag + speedModifier) * forward.y * this.enginePower;
-		body.velocity.z += (velLength1 * this.lastDrag + speedModifier) * forward.z * this.enginePower;
+		body.velocity.x += (velLength1 * this.lastDrag + speedModifier) * forward.x * this.enginePower * boostMul;
+		body.velocity.y += (velLength1 * this.lastDrag + speedModifier) * forward.y * this.enginePower * boostMul;
+		body.velocity.z += (velLength1 * this.lastDrag + speedModifier) * forward.z * this.enginePower * boostMul;
 
 		// document.getElementById('car-debug').innerHTML = 'Speed: ' + Utils.round(currentSpeed, 2) + '';
 		// document.getElementById('car-debug').innerHTML += '<br>' + 'Power output: ' + Utils.round(velLength1 * this.lastDrag, 2) + '';

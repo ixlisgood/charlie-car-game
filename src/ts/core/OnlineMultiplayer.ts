@@ -8,6 +8,7 @@ import { World } from '../world/World';
 import { Character } from '../characters/Character';
 import { Vehicle } from '../vehicles/Vehicle';
 import { Car } from '../vehicles/Car';
+import { PickupTruck } from '../vehicles/PickupTruck';
 import { Airplane } from '../vehicles/Airplane';
 import { Helicopter } from '../vehicles/Helicopter';
 import { LoadingManager } from './LoadingManager';
@@ -31,6 +32,8 @@ interface OnlinePlayerState
 	seatName?: string;
 	kickAt?: number;
 	frozen?: boolean;
+	flying?: boolean;
+	speedBoost?: boolean;
 }
 
 interface RemotePlayer
@@ -61,6 +64,8 @@ export class OnlineMultiplayer
 	private playerRef: any;
 	private playersRef: any;
 	private controlRef: any;
+	private commandRef: any;
+	private chatRef: any;
 	private localCharacter: Character;
 	private remotePlayers: { [id: string]: RemotePlayer } = {};
 	private remoteVehicles: { [id: string]: RemoteVehicle } = {};
@@ -73,9 +78,13 @@ export class OnlineMultiplayer
 	private playerName: string = '';
 	private isModerator: boolean = false;
 	private freezeEveryone: boolean = false;
+	private slowEveryone: boolean = false;
 	private kickAt: number = 0;
 	private lobbyMenu: HTMLElement;
 	private moderatorMenu: HTMLElement;
+	private chatPanel: HTMLElement;
+	private centerCursor: HTMLElement;
+	private currentTargetName: string = '';
 
 	constructor(world: World, loadingManager: LoadingManager)
 	{
@@ -104,6 +113,7 @@ export class OnlineMultiplayer
 
 	public update(timeStep: number): void
 	{
+		this.updateTargetCursor();
 		if (this.localCharacter === undefined || this.playerRef === undefined) return;
 
 		const now = Date.now();
@@ -114,7 +124,7 @@ export class OnlineMultiplayer
 		const object: any = this.localCharacter.controlledObject || occupiedSeat?.vehicle || this.localCharacter;
 		const position = object.collision === undefined ? object.position : object.collision.interpolatedPosition;
 		const quaternion = object.collision === undefined ? object.quaternion : object.collision.interpolatedQuaternion;
-		const vehicleType = object.entityType === 2 ? 'car' : object.entityType === 1 ? 'airplane' : object.entityType === 3 ? 'heli' : undefined;
+		const vehicleType = object.userData.vehicleType || (object.entityType === 2 ? 'car' : object.entityType === 1 ? 'airplane' : object.entityType === 3 ? 'heli' : undefined);
 		const vehicleId = vehicleType !== undefined ? String(object.userData.networkId || object.spawnPoint?.name || object.uuid) : undefined;
 		const moving = vehicleType === undefined && position.distanceTo(this.lastLocalPosition) > 0.02;
 		this.lastLocalPosition.copy(position);
@@ -138,7 +148,9 @@ export class OnlineMultiplayer
 		else state.moving = moving;
 		state.color = this.playerColor;
 		state.moderator = this.isModerator;
-		state.frozen = this.freezeEveryone;
+		state.frozen = this.freezeEveryone && !this.isModerator;
+		state.flying = this.localCharacter.isFlying;
+		state.speedBoost = this.localCharacter.moveSpeed > 4;
 
 		this.playerRef.set(state).catch((error) => console.error('Online multiplayer update failed', error));
 	}
@@ -168,9 +180,14 @@ export class OnlineMultiplayer
 				remote.color = state.color;
 				remote.character.setPlayerColor(state.color);
 			}
-			remote.character.isFrozen = this.freezeEveryone;
+			const isRemoteMod = state.moderator === true;
+			remote.character.isFrozen = this.freezeEveryone && !isRemoteMod;
+			remote.character.isSlowed = this.slowEveryone && !isRemoteMod;
 			remote.character.setPlayerName(state.name || 'Player');
-			remote.character.setModeratorSkin(state.moderator === true);
+			remote.character.userData.playerName = state.name || 'Player';
+			remote.character.setModeratorSkin(isRemoteMod);
+			remote.character.isFlying = state.flying === true;
+			remote.character.moveSpeed = state.speedBoost === true ? 12 : 4;
 			if (state.kickAt !== undefined && state.kickAt > (remote.lastKickAt || 0))
 			{
 				remote.lastKickAt = state.kickAt;
@@ -193,6 +210,11 @@ export class OnlineMultiplayer
 					remote.character.position.lerp(position, 0.35);
 				}
 				else this.syncRemoteVehicle(remote, state.vehicleId || id, state.vehicleType, state.seatName, position, quaternion);
+				if (remote.vehicle !== undefined)
+				{
+					remote.vehicle.userData.fly = state.flying === true;
+					remote.vehicle.userData.speedBoost = state.speedBoost === true;
+				}
 			}
 			else
 			{
@@ -230,6 +252,7 @@ export class OnlineMultiplayer
 			this.world.add(character);
 			if (state.color !== undefined) character.setPlayerColor(state.color);
 			character.setPlayerName(state.name || 'Player');
+			character.userData.playerName = state.name || 'Player';
 			character.setModeratorSkin(state.moderator === true);
 			this.remotePlayers[id] = { character, color: state.color, lastSeen: Date.now() };
 			this.setRemoteAnimation(this.remotePlayers[id], state.vehicleType !== undefined ? 'driving' : state.moving === true ? 'run' : 'idle');
@@ -253,7 +276,8 @@ export class OnlineMultiplayer
 		if (remote.vehicle === undefined || remote.vehicle.userData.vehicleType !== vehicleType)
 		{
 			this.removeRemoteVehicle(remote);
-			this.loadingManager.loadGLTF('build/assets/' + vehicleType + '.glb', (model) =>
+			const assetType = vehicleType === 'pickup' ? 'car' : vehicleType;
+			this.loadingManager.loadGLTF('build/assets/' + assetType + '.glb', (model) =>
 			{
 				if (this.remoteVehicles[vehicleId] !== undefined) return;
 				const vehicle = this.createVehicleVisual(vehicleType, model);
@@ -341,6 +365,7 @@ export class OnlineMultiplayer
 		switch (vehicleType)
 		{
 			case 'car': return new Car(model);
+			case 'pickup': return new PickupTruck(model);
 			case 'airplane': return new Airplane(model);
 			case 'heli': return new Helicopter(model);
 			default: return new Car(model);
@@ -352,7 +377,7 @@ export class OnlineMultiplayer
 		const menu = document.createElement('div');
 		menu.id = 'lobby-menu';
 		menu.innerHTML = '<div class="lobby-panel">' +
-			'<h1>Sketchbook 0.6</h1>' +
+			'<h1>Sketchbook 1.0</h1>' +
 			'<label for="lobby-name">Lobby</label>' +
 			'<input id="lobby-name" value="main" maxlength="24" />' +
 			'<label for="player-name">Username</label>' +
@@ -372,6 +397,7 @@ export class OnlineMultiplayer
 		document.body.appendChild(menu);
 		this.lobbyMenu = menu;
 		this.createModeratorMenu();
+		this.createChat();
 
 		const lobbyList = this.database.ref(OnlineMultiplayer.roomName + '/lobbies');
 		lobbyList.on('value', (snapshot) =>
@@ -407,30 +433,132 @@ export class OnlineMultiplayer
 		menu.innerHTML = '<div class="moderator-panel"><strong>Moderator</strong>' +
 			'<button id="mod-fly">Fly</button>' +
 			'<button id="mod-freeze">Freeze everyone</button>' +
+			'<button id="mod-slow">Slow everyone</button>' +
 			'<button id="mod-speed">Speed boost</button></div>';
 		document.body.appendChild(menu);
 		this.moderatorMenu = menu;
+		this.centerCursor = document.createElement('div');
+		this.centerCursor.id = 'moderator-cursor';
+		document.body.appendChild(this.centerCursor);
 		(document.getElementById('mod-freeze') as HTMLElement).onclick = () =>
 		{
 			this.freezeEveryone = !this.freezeEveryone;
-			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = this.freezeEveryone;
-			if (this.controlRef !== undefined) this.controlRef.update({ freeze: this.freezeEveryone });
+			// Freeze never affects the moderator
+			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = false;
+			Object.keys(this.remotePlayers).forEach((id) =>
+			{
+				const remote = this.remotePlayers[id];
+				remote.character.isFrozen = this.freezeEveryone && !(remote.character as any).moderatorSkinEnabled;
+			});
+			if (this.controlRef !== undefined) this.controlRef.update({ freeze: this.freezeEveryone, slow: this.slowEveryone });
+		};
+		(document.getElementById('mod-slow') as HTMLElement).onclick = () =>
+		{
+			this.slowEveryone = !this.slowEveryone;
+			if (this.localCharacter !== undefined) this.localCharacter.isSlowed = false;
+			Object.keys(this.remotePlayers).forEach((id) =>
+			{
+				const remote = this.remotePlayers[id];
+				remote.character.isSlowed = this.slowEveryone && !(remote.character as any).moderatorSkinEnabled;
+			});
+			if (this.controlRef !== undefined) this.controlRef.update({ freeze: this.freezeEveryone, slow: this.slowEveryone });
 		};
 		(document.getElementById('mod-fly') as HTMLElement).onclick = () =>
 		{
-			if (this.localCharacter !== undefined) this.localCharacter.isFlying = !this.localCharacter.isFlying;
+			if (this.localCharacter !== undefined)
+			{
+				this.localCharacter.isFlying = !this.localCharacter.isFlying;
+				if (this.localCharacter.occupyingSeat !== null)
+				{
+					(this.localCharacter.occupyingSeat.vehicle as any).userData.fly = this.localCharacter.isFlying;
+				}
+			}
 		};
 		(document.getElementById('mod-speed') as HTMLElement).onclick = () =>
 		{
-			if (this.localCharacter !== undefined) this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+			if (this.localCharacter !== undefined)
+			{
+				this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+				if (this.localCharacter.occupyingSeat !== null)
+				{
+					(this.localCharacter.occupyingSeat.vehicle as any).userData.speedBoost = this.localCharacter.moveSpeed > 4;
+				}
+			}
 		};
+	}
+
+	private createChat(): void
+	{
+		this.chatPanel = document.createElement('div');
+		this.chatPanel.id = 'chat-panel';
+		this.chatPanel.innerHTML = '<div id="chat-messages"></div><input id="chat-input" maxlength="120" placeholder="Chat" />';
+		document.body.appendChild(this.chatPanel);
+		const input = document.getElementById('chat-input') as HTMLInputElement;
+		input.onkeydown = (event: KeyboardEvent) =>
+		{
+			if (event.code !== 'Enter' || input.value.trim() === '') return;
+			const text = input.value.trim();
+			input.value = '';
+			const commandText = text[0] === '!' ? text.slice(1) : text;
+			if (this.isModerator && /^(freeze|fly|superspeed|slow)(?:\s+.*)?$/i.test(commandText)) this.sendCommand(commandText);
+			else this.chatRef?.push({ name: this.playerName || 'Player', text, at: firebase.database.ServerValue.TIMESTAMP });
+		};
+	}
+
+	private sendCommand(commandText: string): void
+	{
+		const parts = commandText.trim().split(/\s+/);
+		const command = parts.shift()?.toLowerCase();
+		const target = parts.join(' ') || this.currentTargetName;
+		if (command !== 'freeze' && command !== 'fly' && command !== 'superspeed' && command !== 'slow') return;
+		if (target === '') return;
+		this.commandRef?.push({ command, target, at: firebase.database.ServerValue.TIMESTAMP });
+		this.chatRef?.push({ name: 'Moderator', text: '!' + command + ' ' + target, at: firebase.database.ServerValue.TIMESTAMP });
+	}
+
+	private applyCommand(command: string, target: string): void
+	{
+		if (target.toLowerCase() !== this.playerName.toLowerCase() || this.localCharacter === undefined) return;
+		// Targeted freeze/slow still apply (moderator can target self if desired, but global ones skip mod)
+		if (command === 'freeze') this.localCharacter.isFrozen = !this.localCharacter.isFrozen;
+		if (command === 'slow') this.localCharacter.isSlowed = !this.localCharacter.isSlowed;
+		if (command === 'fly')
+		{
+			this.localCharacter.isFlying = !this.localCharacter.isFlying;
+			if (this.localCharacter.occupyingSeat !== null) (this.localCharacter.occupyingSeat.vehicle as any).userData.fly = this.localCharacter.isFlying;
+		}
+		if (command === 'superspeed')
+		{
+			this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+			if (this.localCharacter.occupyingSeat !== null) (this.localCharacter.occupyingSeat.vehicle as any).userData.speedBoost = this.localCharacter.moveSpeed > 4;
+		}
+	}
+
+	private updateTargetCursor(): void
+	{
+		if (!this.isModerator || this.localCharacter === undefined) return;
+		const candidates: Array<{ name: string; object: THREE.Object3D; distance: number }> = [];
+		Object.keys(this.remotePlayers).forEach((id) =>
+		{
+			const remote = this.remotePlayers[id];
+			const targetName = remote.character.userData.playerName || 'Player';
+			const objects = remote.vehicle === undefined ? [remote.character] : [remote.vehicle, remote.character];
+			objects.forEach((object) =>
+			{
+				const projected = object.position.clone().project(this.world.camera);
+				if (projected.z > -1 && projected.z < 1) candidates.push({ name: targetName, object, distance: Math.sqrt(projected.x * projected.x + projected.y * projected.y) });
+			});
+		});
+		candidates.sort((a, b) => a.distance - b.distance);
+		this.currentTargetName = candidates.length > 0 && candidates[0].distance < 0.18 ? candidates[0].name : '';
+		this.centerCursor.classList.toggle('targeting', this.currentTargetName !== '');
 	}
 
 	private joinLobby(): void
 	{
 		const input = document.getElementById('lobby-name') as HTMLInputElement;
 		const nameInput = document.getElementById('player-name') as HTMLInputElement;
-		this.playerName = (nameInput.value || 'Player').trim().slice(0, 32) || 'Player';
+		this.playerName = (nameInput.value || 'Player').trim().replace(/\s+/g, ' ').slice(0, 32) || 'Player';
 		this.isModerator = this.playerName.toLowerCase() === 'charles cheatham 67';
 		if (this.localCharacter !== undefined) this.localCharacter.setPlayerName(this.playerName);
 		if (this.localCharacter !== undefined) this.localCharacter.setModeratorSkin(this.isModerator);
@@ -438,18 +566,47 @@ export class OnlineMultiplayer
 		this.playerId = this.database.ref().push().key;
 		const lobbyRef = this.database.ref(OnlineMultiplayer.roomName + '/lobbies/' + this.lobbyId);
 		this.controlRef = lobbyRef.child('control');
+		this.commandRef = lobbyRef.child('commands');
+		this.chatRef = lobbyRef.child('chat');
 		this.playersRef = lobbyRef.child('players');
 		this.playerRef = this.playersRef.child(this.playerId);
 		this.playerRef.onDisconnect().remove();
 		this.playersRef.on('value', (snapshot) => this.updateRemotePlayers(snapshot.val() || {}));
 		this.controlRef.on('value', (snapshot) =>
 		{
-			this.freezeEveryone = snapshot.val()?.freeze === true;
-			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = this.freezeEveryone;
-			Object.keys(this.remotePlayers).forEach((id) => this.remotePlayers[id].character.isFrozen = this.freezeEveryone);
+			const data = snapshot.val() || {};
+			this.freezeEveryone = data.freeze === true;
+			this.slowEveryone = data.slow === true;
+			// Never freeze or slow the local moderator
+			if (this.localCharacter !== undefined)
+			{
+				this.localCharacter.isFrozen = this.freezeEveryone && !this.isModerator;
+				this.localCharacter.isSlowed = this.slowEveryone && !this.isModerator;
+			}
+			Object.keys(this.remotePlayers).forEach((id) =>
+			{
+				const remote = this.remotePlayers[id];
+				const isMod = (remote.character as any).moderatorSkinEnabled === true;
+				remote.character.isFrozen = this.freezeEveryone && !isMod;
+				remote.character.isSlowed = this.slowEveryone && !isMod;
+			});
+		});
+		this.commandRef.on('child_added', (snapshot) =>
+		{
+			const command = snapshot.val();
+			if (command?.command && command?.target) this.applyCommand(command.command, command.target);
+		});
+		this.chatRef.on('value', (snapshot) =>
+		{
+			const values = snapshot.val() || {};
+			const messages = Object.keys(values).map((key) => values[key]).slice(-12) as any[];
+			const container = document.getElementById('chat-messages');
+			container.innerHTML = messages.map((message) => '<div><strong>' + message.name + ':</strong> ' + message.text + '</div>').join('');
+			container.scrollTop = container.scrollHeight;
 		});
 		lobbyRef.child('lastActive').set(firebase.database.ServerValue.TIMESTAMP);
 		this.lobbyMenu.style.display = 'none';
 		this.moderatorMenu.style.display = this.isModerator ? 'block' : 'none';
+		this.centerCursor.style.display = this.isModerator ? 'block' : 'none';
 	}
 }

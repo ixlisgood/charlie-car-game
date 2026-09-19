@@ -94,7 +94,7 @@ export class Car extends Vehicle implements IControllable
 		}
 
 		// Engine
-		const engineForce = 500;
+		const engineForce = this.userData.speedBoost === true ? 1000 : 500;
 		const maxGears = 5;
 		const gearsMaxSpeeds = {
 			'R': -4,

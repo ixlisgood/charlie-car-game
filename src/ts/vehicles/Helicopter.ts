@@ -94,17 +94,18 @@ export class Helicopter extends Vehicle implements IControllable, IWorldEntity
 		let forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
 		
 		// Throttle
+		const boostMul = this.userData.speedBoost === true ? 1.8 : 1;
 		if (heli.actions.ascend.isPressed)
 		{
-			body.velocity.x += up.x * 0.15 * this.enginePower;
-			body.velocity.y += up.y * 0.15 * this.enginePower;
-			body.velocity.z += up.z * 0.15 * this.enginePower;
+			body.velocity.x += up.x * 0.15 * this.enginePower * boostMul;
+			body.velocity.y += up.y * 0.15 * this.enginePower * boostMul;
+			body.velocity.z += up.z * 0.15 * this.enginePower * boostMul;
 		}
 		if (heli.actions.descend.isPressed)
 		{
-			body.velocity.x -= up.x * 0.15 * this.enginePower;
-			body.velocity.y -= up.y * 0.15 * this.enginePower;
-			body.velocity.z -= up.z * 0.15 * this.enginePower;
+			body.velocity.x -= up.x * 0.15 * this.enginePower * boostMul;
+			body.velocity.y -= up.y * 0.15 * this.enginePower * boostMul;
+			body.velocity.z -= up.z * 0.15 * this.enginePower * boostMul;
 		}
 
 		// Vertical stabilization
