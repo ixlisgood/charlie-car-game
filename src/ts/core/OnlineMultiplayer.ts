@@ -78,6 +78,7 @@ export class OnlineMultiplayer
 	private playerName: string = '';
 	private isModerator: boolean = false;
 	private freezeEveryone: boolean = false;
+	private slowEveryone: boolean = false;
 	private kickAt: number = 0;
 	private lobbyMenu: HTMLElement;
 	private moderatorMenu: HTMLElement;
@@ -147,7 +148,7 @@ export class OnlineMultiplayer
 		else state.moving = moving;
 		state.color = this.playerColor;
 		state.moderator = this.isModerator;
-		state.frozen = this.freezeEveryone;
+		state.frozen = this.freezeEveryone && !this.isModerator;
 		state.flying = this.localCharacter.isFlying;
 		state.speedBoost = this.localCharacter.moveSpeed > 4;
 
@@ -179,10 +180,12 @@ export class OnlineMultiplayer
 				remote.color = state.color;
 				remote.character.setPlayerColor(state.color);
 			}
-			remote.character.isFrozen = this.freezeEveryone;
+			const isRemoteMod = state.moderator === true;
+			remote.character.isFrozen = this.freezeEveryone && !isRemoteMod;
+			remote.character.isSlowed = this.slowEveryone && !isRemoteMod;
 			remote.character.setPlayerName(state.name || 'Player');
 			remote.character.userData.playerName = state.name || 'Player';
-			remote.character.setModeratorSkin(state.moderator === true);
+			remote.character.setModeratorSkin(isRemoteMod);
 			remote.character.isFlying = state.flying === true;
 			remote.character.moveSpeed = state.speedBoost === true ? 12 : 4;
 			if (state.kickAt !== undefined && state.kickAt > (remote.lastKickAt || 0))
@@ -430,6 +433,7 @@ export class OnlineMultiplayer
 		menu.innerHTML = '<div class="moderator-panel"><strong>Moderator</strong>' +
 			'<button id="mod-fly">Fly</button>' +
 			'<button id="mod-freeze">Freeze everyone</button>' +
+			'<button id="mod-slow">Slow everyone</button>' +
 			'<button id="mod-speed">Speed boost</button></div>';
 		document.body.appendChild(menu);
 		this.moderatorMenu = menu;
@@ -439,16 +443,47 @@ export class OnlineMultiplayer
 		(document.getElementById('mod-freeze') as HTMLElement).onclick = () =>
 		{
 			this.freezeEveryone = !this.freezeEveryone;
-			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = this.freezeEveryone;
-			if (this.controlRef !== undefined) this.controlRef.update({ freeze: this.freezeEveryone });
+			// Freeze never affects the moderator
+			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = false;
+			Object.keys(this.remotePlayers).forEach((id) =>
+			{
+				const remote = this.remotePlayers[id];
+				remote.character.isFrozen = this.freezeEveryone && !(remote.character as any).moderatorSkinEnabled;
+			});
+			if (this.controlRef !== undefined) this.controlRef.update({ freeze: this.freezeEveryone, slow: this.slowEveryone });
+		};
+		(document.getElementById('mod-slow') as HTMLElement).onclick = () =>
+		{
+			this.slowEveryone = !this.slowEveryone;
+			if (this.localCharacter !== undefined) this.localCharacter.isSlowed = false;
+			Object.keys(this.remotePlayers).forEach((id) =>
+			{
+				const remote = this.remotePlayers[id];
+				remote.character.isSlowed = this.slowEveryone && !(remote.character as any).moderatorSkinEnabled;
+			});
+			if (this.controlRef !== undefined) this.controlRef.update({ freeze: this.freezeEveryone, slow: this.slowEveryone });
 		};
 		(document.getElementById('mod-fly') as HTMLElement).onclick = () =>
 		{
-			if (this.localCharacter !== undefined) this.localCharacter.isFlying = !this.localCharacter.isFlying;
+			if (this.localCharacter !== undefined)
+			{
+				this.localCharacter.isFlying = !this.localCharacter.isFlying;
+				if (this.localCharacter.occupyingSeat !== null)
+				{
+					(this.localCharacter.occupyingSeat.vehicle as any).userData.fly = this.localCharacter.isFlying;
+				}
+			}
 		};
 		(document.getElementById('mod-speed') as HTMLElement).onclick = () =>
 		{
-			if (this.localCharacter !== undefined) this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+			if (this.localCharacter !== undefined)
+			{
+				this.localCharacter.moveSpeed = this.localCharacter.moveSpeed === 12 ? 4 : 12;
+				if (this.localCharacter.occupyingSeat !== null)
+				{
+					(this.localCharacter.occupyingSeat.vehicle as any).userData.speedBoost = this.localCharacter.moveSpeed > 4;
+				}
+			}
 		};
 	}
 
@@ -465,7 +500,7 @@ export class OnlineMultiplayer
 			const text = input.value.trim();
 			input.value = '';
 			const commandText = text[0] === '!' ? text.slice(1) : text;
-			if (this.isModerator && /^(freeze|fly|superspeed)(?:\s+.*)?$/i.test(commandText)) this.sendCommand(commandText);
+			if (this.isModerator && /^(freeze|fly|superspeed|slow)(?:\s+.*)?$/i.test(commandText)) this.sendCommand(commandText);
 			else this.chatRef?.push({ name: this.playerName || 'Player', text, at: firebase.database.ServerValue.TIMESTAMP });
 		};
 	}
@@ -475,7 +510,7 @@ export class OnlineMultiplayer
 		const parts = commandText.trim().split(/\s+/);
 		const command = parts.shift()?.toLowerCase();
 		const target = parts.join(' ') || this.currentTargetName;
-		if (command !== 'freeze' && command !== 'fly' && command !== 'superspeed') return;
+		if (command !== 'freeze' && command !== 'fly' && command !== 'superspeed' && command !== 'slow') return;
 		if (target === '') return;
 		this.commandRef?.push({ command, target, at: firebase.database.ServerValue.TIMESTAMP });
 		this.chatRef?.push({ name: 'Moderator', text: '!' + command + ' ' + target, at: firebase.database.ServerValue.TIMESTAMP });
@@ -484,7 +519,9 @@ export class OnlineMultiplayer
 	private applyCommand(command: string, target: string): void
 	{
 		if (target.toLowerCase() !== this.playerName.toLowerCase() || this.localCharacter === undefined) return;
+		// Targeted freeze/slow still apply (moderator can target self if desired, but global ones skip mod)
 		if (command === 'freeze') this.localCharacter.isFrozen = !this.localCharacter.isFrozen;
+		if (command === 'slow') this.localCharacter.isSlowed = !this.localCharacter.isSlowed;
 		if (command === 'fly')
 		{
 			this.localCharacter.isFlying = !this.localCharacter.isFlying;
@@ -537,9 +574,22 @@ export class OnlineMultiplayer
 		this.playersRef.on('value', (snapshot) => this.updateRemotePlayers(snapshot.val() || {}));
 		this.controlRef.on('value', (snapshot) =>
 		{
-			this.freezeEveryone = snapshot.val()?.freeze === true;
-			if (this.localCharacter !== undefined) this.localCharacter.isFrozen = this.freezeEveryone;
-			Object.keys(this.remotePlayers).forEach((id) => this.remotePlayers[id].character.isFrozen = this.freezeEveryone);
+			const data = snapshot.val() || {};
+			this.freezeEveryone = data.freeze === true;
+			this.slowEveryone = data.slow === true;
+			// Never freeze or slow the local moderator
+			if (this.localCharacter !== undefined)
+			{
+				this.localCharacter.isFrozen = this.freezeEveryone && !this.isModerator;
+				this.localCharacter.isSlowed = this.slowEveryone && !this.isModerator;
+			}
+			Object.keys(this.remotePlayers).forEach((id) =>
+			{
+				const remote = this.remotePlayers[id];
+				const isMod = (remote.character as any).moderatorSkinEnabled === true;
+				remote.character.isFrozen = this.freezeEveryone && !isMod;
+				remote.character.isSlowed = this.slowEveryone && !isMod;
+			});
 		});
 		this.commandRef.on('child_added', (snapshot) =>
 		{

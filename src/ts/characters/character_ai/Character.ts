@@ -83,14 +83,14 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public isRemote: boolean = false;
 	public isFrozen: boolean = false;
 	public isFlying: boolean = false;
+	public isSlowed: boolean = false;
 	public isFirstPerson: boolean = false;
 	private playerNameLabel: THREE.Sprite;
-	private moderatorLightning: THREE.Group;
-	private moderatorAura: THREE.Mesh;
 	private moderatorTrail: THREE.Group;
 	private moderatorTrailAge: number = 0;
 	private moderatorTrailPosition: THREE.Vector3 = new THREE.Vector3();
 	private moderatorTrailInitialized: boolean = false;
+	private moderatorSkinEnabled: boolean = false;
 	
 	private physicsEnabled: boolean = true;
 	private vehicleHitCooldown: number = 0;
@@ -232,43 +232,14 @@ export class Character extends THREE.Object3D implements IWorldEntity
 
 	public setModeratorSkin(enabled: boolean): void
 	{
+		this.moderatorSkinEnabled = enabled;
 		if (enabled)
 		{
 			this.materials.forEach((material: any) =>
 			{
 				if (material.color !== undefined) material.color.set('#030507');
 			});
-		}
-
-		if (!enabled && this.moderatorLightning !== undefined)
-		{
-			this.remove(this.moderatorLightning);
-			this.moderatorLightning = undefined;
-			this.removeModeratorTrail();
-		}
-		if (enabled && this.moderatorLightning === undefined)
-		{
-			this.moderatorLightning = new THREE.Group();
-			const lightningMaterial = new THREE.LineBasicMaterial({ color: 0x168cff, transparent: true, opacity: 0.95 });
-			for (let boltIndex = 0; boltIndex < 6; boltIndex++)
-			{
-				const geometry = new THREE.Geometry();
-				const angle = (boltIndex / 6) * Math.PI * 2;
-				for (let pointIndex = 0; pointIndex < 6; pointIndex++)
-				{
-					const height = -0.45 + pointIndex * 0.3;
-					const radius = 0.42 + (pointIndex % 2) * 0.12;
-					geometry.vertices.push(new THREE.Vector3(
-						Math.cos(angle + (pointIndex % 2) * 0.18) * radius,
-						height,
-						Math.sin(angle + (pointIndex % 2) * 0.18) * radius
-					));
-				}
-				this.moderatorLightning.add(new THREE.Line(geometry, lightningMaterial));
-			}
-			this.moderatorLightning.position.y = 0.55;
-			this.add(this.moderatorLightning);
-			if (!this.isRemote)
+			if (this.moderatorTrail === undefined)
 			{
 				this.moderatorTrail = new THREE.Group();
 				this.world?.graphicsWorld.add(this.moderatorTrail);
@@ -276,16 +247,99 @@ export class Character extends THREE.Object3D implements IWorldEntity
 				this.moderatorTrailInitialized = true;
 			}
 		}
+		else
+		{
+			this.removeModeratorTrail();
+		}
 	}
 
 	private removeModeratorTrail(): void
 	{
 		if (this.moderatorTrail !== undefined)
 		{
+			this.moderatorTrail.children.slice().forEach((child: THREE.Object3D) =>
+			{
+				this.moderatorTrail.remove(child);
+				child.traverse((node: any) =>
+				{
+					if (node.geometry) node.geometry.dispose();
+					if (node.material)
+					{
+						const mats = Array.isArray(node.material) ? node.material : [node.material];
+						mats.forEach((mat: any) => mat.dispose && mat.dispose());
+					}
+				});
+			});
 			if (this.world !== undefined) this.world.graphicsWorld.remove(this.moderatorTrail);
 			this.moderatorTrail = undefined;
 		}
 		this.moderatorTrailInitialized = false;
+	}
+
+	private spawnModeratorSkinTrail(worldPosition: THREE.Vector3): void
+	{
+		if (this.moderatorTrail === undefined || this.modelContainer === undefined) return;
+
+		const clone = this.modelContainer.clone(true);
+		clone.position.copy(worldPosition);
+		clone.position.y -= 0.57;
+		clone.quaternion.copy(this.quaternion);
+		clone.scale.copy(this.scale);
+		clone.userData = { opacity: 0.75, fadeSpeed: 0.55 };
+
+		clone.traverse((node: any) =>
+		{
+			if (node.isMesh)
+			{
+				const originalMat = node.material;
+				const mats = Array.isArray(originalMat) ? originalMat : [originalMat];
+				const newMats = mats.map((mat: any) =>
+				{
+					const m = mat.clone ? mat.clone() : new THREE.MeshBasicMaterial({ color: 0x030507 });
+					m.transparent = true;
+					m.opacity = 0.75;
+					m.depthWrite = false;
+					if (m.color) m.color.set('#030507');
+					return m;
+				});
+				node.material = Array.isArray(originalMat) ? newMats : newMats[0];
+
+				// Blue outline via slightly larger inverted/emissive shell
+				if (node.geometry)
+				{
+					const outline = node.clone();
+					outline.scale.multiplyScalar(1.06);
+					const outlineMat = new THREE.MeshBasicMaterial({
+						color: 0x168cff,
+						transparent: true,
+						opacity: 0.65,
+						side: THREE.BackSide,
+						depthWrite: false
+					});
+					outline.material = outlineMat;
+					outline.userData = { isOutline: true };
+					node.add(outline);
+				}
+			}
+		});
+
+		// Limit trail length
+		while (this.moderatorTrail.children.length > 18)
+		{
+			const oldest = this.moderatorTrail.children[0];
+			this.moderatorTrail.remove(oldest);
+			oldest.traverse((node: any) =>
+			{
+				if (node.geometry) node.geometry.dispose();
+				if (node.material)
+				{
+					const mats = Array.isArray(node.material) ? node.material : [node.material];
+					mats.forEach((mat: any) => mat.dispose && mat.dispose());
+				}
+			});
+		}
+
+		this.moderatorTrail.add(clone);
 	}
 
 	public setArcadeVelocityInfluence(x: number, y: number = x, z: number = x): void
@@ -534,35 +588,49 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public update(timeStep: number): void
 	{
 		this.vehicleHitCooldown = Math.max(0, this.vehicleHitCooldown - timeStep);
-		if (this.moderatorLightning !== undefined)
+		if (this.moderatorSkinEnabled && this.moderatorTrail !== undefined)
 		{
-			this.moderatorLightning.rotation.y += timeStep * 2.5;
-			this.moderatorLightning.scale.setScalar(1 + Math.sin(Date.now() * 0.012) * 0.08);
-			if (this.moderatorTrail !== undefined)
+			this.moderatorTrailAge += timeStep;
+			const currentPosition = this.getWorldPosition(new THREE.Vector3());
+			if (this.moderatorTrailInitialized && currentPosition.distanceTo(this.moderatorTrailPosition) > 0.35 && this.moderatorTrailAge > 0.12)
 			{
-				this.moderatorTrailAge += timeStep;
-				const currentPosition = this.getWorldPosition(new THREE.Vector3());
-				if (this.moderatorTrailInitialized && currentPosition.distanceTo(this.moderatorTrailPosition) > 0.08 && this.moderatorTrailAge > 0.04)
+				this.spawnModeratorSkinTrail(currentPosition);
+				this.moderatorTrailPosition.copy(currentPosition);
+				this.moderatorTrailAge = 0;
+			}
+			this.moderatorTrail.children.slice().forEach((child: THREE.Object3D) =>
+			{
+				const userData = child.userData as any;
+				if (userData.fadeSpeed !== undefined)
 				{
-					const geometry = new THREE.Geometry();
-					geometry.vertices.push(this.moderatorTrailPosition.clone().add(new THREE.Vector3(0, 0.35, 0)), currentPosition.clone().add(new THREE.Vector3(0, 0.35, 0)));
-					const material = new THREE.LineBasicMaterial({ color: 0x168cff, transparent: true, opacity: 0.9 });
-					this.moderatorTrail.add(new THREE.Line(geometry, material));
-					this.moderatorTrailPosition.copy(currentPosition);
-					this.moderatorTrailAge = 0;
-				}
-				this.moderatorTrail.children.slice().forEach((child: THREE.Line) =>
-				{
-					const material = child.material as THREE.LineBasicMaterial;
-					material.opacity -= timeStep * 0.45;
-					if (material.opacity <= 0)
+					userData.opacity -= timeStep * userData.fadeSpeed;
+					child.traverse((node: any) =>
+					{
+						if (node.material)
+						{
+							const mats = Array.isArray(node.material) ? node.material : [node.material];
+							mats.forEach((mat: any) =>
+							{
+								if (mat.opacity !== undefined) mat.opacity = Math.max(0, userData.opacity);
+								if (mat.transparent !== undefined) mat.transparent = true;
+							});
+						}
+					});
+					if (userData.opacity <= 0)
 					{
 						this.moderatorTrail.remove(child);
-						child.geometry.dispose();
-						material.dispose();
+						child.traverse((node: any) =>
+						{
+							if (node.geometry) node.geometry.dispose();
+							if (node.material)
+							{
+								const mats = Array.isArray(node.material) ? node.material : [node.material];
+								mats.forEach((mat: any) => mat.dispose && mat.dispose());
+							}
+						});
 					}
-				});
-			}
+				}
+			});
 		}
 		if (this.isFrozen)
 		{
@@ -574,6 +642,14 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		this.vehicleEntryInstance?.update(timeStep);
 		// console.log(this.occupyingSeat);
 		if (!this.isRemote) this.charState?.update(timeStep);
+
+		// When flying, match sprint horizontal speed
+		if (this.isFlying && this.controlledObject === undefined && !this.isRemote)
+		{
+			const hasDir = this.actions.up.isPressed || this.actions.down.isPressed || this.actions.left.isPressed || this.actions.right.isPressed;
+			this.setArcadeVelocityTarget(hasDir ? 1.4 : 0);
+			this.setArcadeVelocityInfluence(1, 0, 1);
+		}
 
 		// this.visuals.position.copy(this.modelOffset);
 		if (this.physicsEnabled) this.springMovement(timeStep);
@@ -1033,8 +1109,9 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		// Get velocities
 		let simulatedVelocity = new THREE.Vector3(body.velocity.x, body.velocity.y, body.velocity.z);
 
-		// Take local velocity
-		let arcadeVelocity = new THREE.Vector3().copy(character.velocity).multiplyScalar(character.moveSpeed);
+		// Take local velocity (slowed players move at half speed)
+		const effectiveSpeed = character.isSlowed ? character.moveSpeed * 0.35 : character.moveSpeed;
+		let arcadeVelocity = new THREE.Vector3().copy(character.velocity).multiplyScalar(effectiveSpeed);
 		// Turn local into global
 		arcadeVelocity = Utils.appplyVectorMatrixXZ(character.orientation, arcadeVelocity);
 
@@ -1048,9 +1125,9 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			let globalVelocityTarget = Utils.appplyVectorMatrixXZ(character.orientation, character.velocityTarget);
 			let add = new THREE.Vector3().copy(arcadeVelocity).multiply(character.arcadeVelocityInfluence);
 
-			if (Math.abs(simulatedVelocity.x) < Math.abs(globalVelocityTarget.x * character.moveSpeed) || Utils.haveDifferentSigns(simulatedVelocity.x, arcadeVelocity.x)) { newVelocity.x += add.x; }
-			if (Math.abs(simulatedVelocity.y) < Math.abs(globalVelocityTarget.y * character.moveSpeed) || Utils.haveDifferentSigns(simulatedVelocity.y, arcadeVelocity.y)) { newVelocity.y += add.y; }
-			if (Math.abs(simulatedVelocity.z) < Math.abs(globalVelocityTarget.z * character.moveSpeed) || Utils.haveDifferentSigns(simulatedVelocity.z, arcadeVelocity.z)) { newVelocity.z += add.z; }
+			if (Math.abs(simulatedVelocity.x) < Math.abs(globalVelocityTarget.x * effectiveSpeed) || Utils.haveDifferentSigns(simulatedVelocity.x, arcadeVelocity.x)) { newVelocity.x += add.x; }
+			if (Math.abs(simulatedVelocity.y) < Math.abs(globalVelocityTarget.y * effectiveSpeed) || Utils.haveDifferentSigns(simulatedVelocity.y, arcadeVelocity.y)) { newVelocity.y += add.y; }
+			if (Math.abs(simulatedVelocity.z) < Math.abs(globalVelocityTarget.z * effectiveSpeed) || Utils.haveDifferentSigns(simulatedVelocity.z, arcadeVelocity.z)) { newVelocity.z += add.z; }
 		}
 		else
 		{
