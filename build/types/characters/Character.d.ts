@@ -60,9 +60,14 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     isRemote: boolean;
     isFrozen: boolean;
     isFlying: boolean;
+    isSlowed: boolean;
     isFirstPerson: boolean;
     private playerNameLabel;
-    private moderatorLightning;
+    private moderatorTrail;
+    private moderatorTrailAge;
+    private moderatorTrailPosition;
+    private moderatorTrailInitialized;
+    private moderatorSkinEnabled;
     private physicsEnabled;
     private vehicleHitCooldown;
     constructor(gltf: any);
@@ -70,6 +75,8 @@ export declare class Character extends THREE.Object3D implements IWorldEntity {
     setPlayerColor(color: string): void;
     setPlayerName(name: string): void;
     setModeratorSkin(enabled: boolean): void;
+    private removeModeratorTrail;
+    private spawnModeratorSkinTrail;
     setArcadeVelocityInfluence(x: number, y?: number, z?: number): void;
     setViewVector(vector: THREE.Vector3): void;
     /**
