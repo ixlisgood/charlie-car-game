@@ -86,10 +86,6 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public isSlowed: boolean = false;
 	public isFirstPerson: boolean = false;
 	private playerNameLabel: THREE.Sprite;
-	private moderatorTrail: THREE.Group;
-	private moderatorTrailAge: number = 0;
-	private moderatorTrailPosition: THREE.Vector3 = new THREE.Vector3();
-	private moderatorTrailInitialized: boolean = false;
 	private moderatorSkinEnabled: boolean = false;
 	
 	private physicsEnabled: boolean = true;
@@ -239,112 +235,7 @@ export class Character extends THREE.Object3D implements IWorldEntity
 			{
 				if (material.color !== undefined) material.color.set('#030507');
 			});
-			if (this.moderatorTrail === undefined)
-			{
-				this.moderatorTrail = new THREE.Group();
-				this.world?.graphicsWorld.add(this.moderatorTrail);
-				this.moderatorTrailPosition.copy(this.getWorldPosition(new THREE.Vector3()));
-				this.moderatorTrailInitialized = true;
-			}
 		}
-		else
-		{
-			this.removeModeratorTrail();
-		}
-	}
-
-	private removeModeratorTrail(): void
-	{
-		if (this.moderatorTrail !== undefined)
-		{
-			this.moderatorTrail.children.slice().forEach((child: THREE.Object3D) =>
-			{
-				this.moderatorTrail.remove(child);
-				child.traverse((node: any) =>
-				{
-					if (node.geometry) node.geometry.dispose();
-					if (node.material)
-					{
-						const mats = Array.isArray(node.material) ? node.material : [node.material];
-						mats.forEach((mat: any) => mat.dispose && mat.dispose());
-					}
-				});
-			});
-			if (this.world !== undefined) this.world.graphicsWorld.remove(this.moderatorTrail);
-			this.moderatorTrail = undefined;
-		}
-		this.moderatorTrailInitialized = false;
-	}
-
-	private spawnModeratorSkinTrail(worldPosition: THREE.Vector3): void
-	{
-		if (this.moderatorTrail === undefined || this.modelContainer === undefined) return;
-
-		// Clone visuals only. Do NOT nest mesh.clone() as children — that caused
-		// "Maximum call stack size exceeded".
-		const clone = this.modelContainer.clone(true);
-		clone.position.copy(worldPosition);
-		clone.position.y -= 0.57;
-		clone.quaternion.copy(this.quaternion);
-		clone.scale.copy(this.scale);
-		clone.userData = { opacity: 0.75, fadeSpeed: 0.8 };
-
-		clone.traverse((node: any) =>
-		{
-			if (!node.isMesh) return;
-
-			// Dark body with blue tint (acts as outline color without extra meshes)
-			node.material = new THREE.MeshBasicMaterial({
-				color: 0x0a1a2e,
-				transparent: true,
-				opacity: 0.75,
-				depthWrite: false,
-				skinning: !!node.isSkinnedMesh
-			});
-
-			// Slightly larger blue shell as a SECOND material pass look:
-			// scale the mesh itself a tiny bit so the blue reads as an outline edge
-			// (safe — no recursive cloning)
-			if (!node.userData.trailOutlined)
-			{
-				node.userData.trailOutlined = true;
-				node.scale.multiplyScalar(1.02);
-			}
-		});
-
-		// Blue outer glow group (single scaled duplicate of root, not per-mesh clones)
-		const glow = this.modelContainer.clone(true);
-		glow.traverse((node: any) =>
-		{
-			if (!node.isMesh) return;
-			node.material = new THREE.MeshBasicMaterial({
-				color: 0x168cff,
-				transparent: true,
-				opacity: 0.35,
-				side: THREE.BackSide,
-				depthWrite: false,
-				skinning: !!node.isSkinnedMesh
-			});
-		});
-		glow.scale.multiplyScalar(1.06);
-		clone.add(glow);
-
-		// Limit trail length
-		while (this.moderatorTrail.children.length > 10)
-		{
-			const oldest = this.moderatorTrail.children[0];
-			this.moderatorTrail.remove(oldest);
-			oldest.traverse((node: any) =>
-			{
-				if (node.material)
-				{
-					const mats = Array.isArray(node.material) ? node.material : [node.material];
-					mats.forEach((mat: any) => { if (mat && mat.dispose) mat.dispose(); });
-				}
-			});
-		}
-
-		this.moderatorTrail.add(clone);
 	}
 
 	public setArcadeVelocityInfluence(x: number, y: number = x, z: number = x): void
@@ -593,50 +484,6 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	public update(timeStep: number): void
 	{
 		this.vehicleHitCooldown = Math.max(0, this.vehicleHitCooldown - timeStep);
-		if (this.moderatorSkinEnabled && this.moderatorTrail !== undefined)
-		{
-			this.moderatorTrailAge += timeStep;
-			const currentPosition = this.getWorldPosition(new THREE.Vector3());
-			if (this.moderatorTrailInitialized && currentPosition.distanceTo(this.moderatorTrailPosition) > 0.35 && this.moderatorTrailAge > 0.12)
-			{
-				this.spawnModeratorSkinTrail(currentPosition);
-				this.moderatorTrailPosition.copy(currentPosition);
-				this.moderatorTrailAge = 0;
-			}
-			this.moderatorTrail.children.slice().forEach((child: THREE.Object3D) =>
-			{
-				const userData = child.userData as any;
-				if (userData.fadeSpeed !== undefined)
-				{
-					userData.opacity -= timeStep * userData.fadeSpeed;
-					child.traverse((node: any) =>
-					{
-						if (node.material)
-						{
-							const mats = Array.isArray(node.material) ? node.material : [node.material];
-							mats.forEach((mat: any) =>
-							{
-								if (mat.opacity !== undefined) mat.opacity = Math.max(0, userData.opacity);
-								if (mat.transparent !== undefined) mat.transparent = true;
-							});
-						}
-					});
-					if (userData.opacity <= 0)
-					{
-						this.moderatorTrail.remove(child);
-						child.traverse((node: any) =>
-						{
-							if (node.geometry) node.geometry.dispose();
-							if (node.material)
-							{
-								const mats = Array.isArray(node.material) ? node.material : [node.material];
-								mats.forEach((mat: any) => mat.dispose && mat.dispose());
-							}
-						});
-					}
-				}
-			});
-		}
 		if (this.isFrozen)
 		{
 			this.velocityTarget.set(0, 0, 0);
@@ -648,12 +495,18 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		// console.log(this.occupyingSeat);
 		if (!this.isRemote) this.charState?.update(timeStep);
 
-		// When flying, match sprint horizontal speed
+		// Flying: sprint-speed horizontal, Space=up, Shift=down, no gravity
 		if (this.isFlying && this.controlledObject === undefined && !this.isRemote)
 		{
 			const hasDir = this.actions.up.isPressed || this.actions.down.isPressed || this.actions.left.isPressed || this.actions.right.isPressed;
+			// 1.4 = sprint target; moveSpeed (4 normal / 12 boost) multiplies in physicsPostStep
 			this.setArcadeVelocityTarget(hasDir ? 1.4 : 0);
 			this.setArcadeVelocityInfluence(1, 0, 1);
+			// Stay in idle/run visually — force out of Falling if needed
+			if (this.charState && (this.charState as any).constructor && (this.charState as any).constructor.name === 'Falling')
+			{
+				// will be corrected next state update via fallInAir guard
+			}
 		}
 
 		// this.visuals.position.copy(this.modelOffset);
@@ -667,7 +520,15 @@ export class Character extends THREE.Object3D implements IWorldEntity
 		{
 			if (this.isFlying && this.controlledObject === undefined)
 			{
-				this.characterCapsule.body.velocity.y = this.actions.jump.isPressed ? 6 : this.actions.down.isPressed ? -6 : 0;
+				const body = this.characterCapsule.body;
+				// Cancel gravity every frame
+				body.velocity.y = 0;
+				body.force.y = 0;
+				// Space = up, Shift (run) = down
+				const flySpeed = (this.moveSpeed > 4 ? 14 : 8);
+				if (this.actions.jump.isPressed) body.velocity.y = flySpeed;
+				else if (this.actions.run.isPressed) body.velocity.y = -flySpeed;
+				else body.velocity.y = 0;
 			}
 			this.position.set(
 				this.characterCapsule.body.interpolatedPosition.x,
@@ -1141,6 +1002,18 @@ export class Character extends THREE.Object3D implements IWorldEntity
 				THREE.MathUtils.lerp(simulatedVelocity.y, arcadeVelocity.y, character.arcadeVelocityInfluence.y),
 				THREE.MathUtils.lerp(simulatedVelocity.z, arcadeVelocity.z, character.arcadeVelocityInfluence.z),
 			);
+		}
+
+		// Flying: ignore ground stick, no gravity, full horizontal control
+		if (character.isFlying && character.controlledObject === undefined)
+		{
+			const flyVert = character.actions.jump.isPressed ? (character.moveSpeed > 4 ? 14 : 8)
+				: character.actions.run.isPressed ? -(character.moveSpeed > 4 ? 14 : 8) : 0;
+			body.velocity.x = newVelocity.x;
+			body.velocity.y = flyVert;
+			body.velocity.z = newVelocity.z;
+			body.force.set(0, 0, 0);
+			return;
 		}
 
 		// If we're hitting the ground, stick to ground

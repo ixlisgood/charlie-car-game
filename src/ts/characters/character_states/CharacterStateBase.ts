@@ -86,6 +86,8 @@ export abstract class CharacterStateBase implements ICharacterState
 
 	public fallInAir(): void
 	{
+		// Don't enter falling animation while flying
+		if (this.character.isFlying) return;
 		if (!this.character.rayHasHit) { this.character.setState(new Falling(this.character)); }
 	}
 
