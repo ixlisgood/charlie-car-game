@@ -280,61 +280,66 @@ export class Character extends THREE.Object3D implements IWorldEntity
 	{
 		if (this.moderatorTrail === undefined || this.modelContainer === undefined) return;
 
+		// Clone visuals only. Do NOT nest mesh.clone() as children — that caused
+		// "Maximum call stack size exceeded".
 		const clone = this.modelContainer.clone(true);
 		clone.position.copy(worldPosition);
 		clone.position.y -= 0.57;
 		clone.quaternion.copy(this.quaternion);
 		clone.scale.copy(this.scale);
-		clone.userData = { opacity: 0.75, fadeSpeed: 0.55 };
+		clone.userData = { opacity: 0.75, fadeSpeed: 0.8 };
 
 		clone.traverse((node: any) =>
 		{
-			if (node.isMesh)
-			{
-				const originalMat = node.material;
-				const mats = Array.isArray(originalMat) ? originalMat : [originalMat];
-				const newMats = mats.map((mat: any) =>
-				{
-					const m = mat.clone ? mat.clone() : new THREE.MeshBasicMaterial({ color: 0x030507 });
-					m.transparent = true;
-					m.opacity = 0.75;
-					m.depthWrite = false;
-					if (m.color) m.color.set('#030507');
-					return m;
-				});
-				node.material = Array.isArray(originalMat) ? newMats : newMats[0];
+			if (!node.isMesh) return;
 
-				// Blue outline via slightly larger inverted/emissive shell
-				if (node.geometry)
-				{
-					const outline = node.clone();
-					outline.scale.multiplyScalar(1.06);
-					const outlineMat = new THREE.MeshBasicMaterial({
-						color: 0x168cff,
-						transparent: true,
-						opacity: 0.65,
-						side: THREE.BackSide,
-						depthWrite: false
-					});
-					outline.material = outlineMat;
-					outline.userData = { isOutline: true };
-					node.add(outline);
-				}
+			// Dark body with blue tint (acts as outline color without extra meshes)
+			node.material = new THREE.MeshBasicMaterial({
+				color: 0x0a1a2e,
+				transparent: true,
+				opacity: 0.75,
+				depthWrite: false,
+				skinning: !!node.isSkinnedMesh
+			});
+
+			// Slightly larger blue shell as a SECOND material pass look:
+			// scale the mesh itself a tiny bit so the blue reads as an outline edge
+			// (safe — no recursive cloning)
+			if (!node.userData.trailOutlined)
+			{
+				node.userData.trailOutlined = true;
+				node.scale.multiplyScalar(1.02);
 			}
 		});
 
+		// Blue outer glow group (single scaled duplicate of root, not per-mesh clones)
+		const glow = this.modelContainer.clone(true);
+		glow.traverse((node: any) =>
+		{
+			if (!node.isMesh) return;
+			node.material = new THREE.MeshBasicMaterial({
+				color: 0x168cff,
+				transparent: true,
+				opacity: 0.35,
+				side: THREE.BackSide,
+				depthWrite: false,
+				skinning: !!node.isSkinnedMesh
+			});
+		});
+		glow.scale.multiplyScalar(1.06);
+		clone.add(glow);
+
 		// Limit trail length
-		while (this.moderatorTrail.children.length > 18)
+		while (this.moderatorTrail.children.length > 10)
 		{
 			const oldest = this.moderatorTrail.children[0];
 			this.moderatorTrail.remove(oldest);
 			oldest.traverse((node: any) =>
 			{
-				if (node.geometry) node.geometry.dispose();
 				if (node.material)
 				{
 					const mats = Array.isArray(node.material) ? node.material : [node.material];
-					mats.forEach((mat: any) => mat.dispose && mat.dispose());
+					mats.forEach((mat: any) => { if (mat && mat.dispose) mat.dispose(); });
 				}
 			});
 		}
